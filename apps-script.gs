@@ -127,6 +127,26 @@ function handleFetchData(payload) {
   return jsonResponse({ ok: true, rows: rows });
 }
 
+// Read path for the entry form's name dropdowns. Returns the roster from the
+// "Staff" tab (column A, below the header). No PIN: names are not sensitive and
+// the public entry form needs them.
+function handleFetchStaff() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Staff");
+  if (!sheet) return jsonResponse({ ok: true, staff: [] });
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return jsonResponse({ ok: true, staff: [] });
+
+  const values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  const seen = {};
+  const staff = [];
+  for (const row of values) {
+    const name = String(row[0] || "").trim();
+    const key = name.toLowerCase();
+    if (name && !seen[key]) { seen[key] = true; staff.push(name); }
+  }
+  return jsonResponse({ ok: true, staff: staff });
+}
+
 function doPost(e) {
   let payload;
   try {
@@ -137,6 +157,10 @@ function doPost(e) {
 
   if (payload && payload.action === "fetchData") {
     return handleFetchData(payload);
+  }
+
+  if (payload && payload.action === "fetchStaff") {
+    return handleFetchStaff();
   }
 
   const validationError = validatePayload(payload);
@@ -205,6 +229,16 @@ function setupSheet() {
   sheet.setFrozenRows(1);
   sheet.getRange("D:D").setNumberFormat("$#,##0.00");
   sheet.getRange("I:L").setNumberFormat("$#,##0.00");
+}
+
+// One-time helper: creates the "Staff" tab that feeds the entry form's name
+// dropdowns. Run once, then type each staff member's name down column A.
+function setupStaffSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("Staff");
+  if (!sheet) sheet = ss.insertSheet("Staff", ss.getNumSheets()); // append; keep ledger at index 0
+  sheet.getRange(1, 1).setValue("Staff name").setFontWeight("bold");
+  sheet.setFrozenRows(1);
 }
 
 // Admin PIN setup: the dashboard reads ADMIN_PIN from Script Properties.
