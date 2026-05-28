@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Shift Tip Entry</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: #f7f7f7;
+    color: #222;
+    padding: 1rem;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+  label { display: block; font-weight: 600; margin: 1rem 0 .25rem; }
+  input[type=text], input[type=number] {
+    width: 100%;
+    padding: .75rem;
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    background: #fff;
+  }
+  input:focus { outline: 2px solid #3b82f6; outline-offset: -1px; }
+  input.error { border-color: #b00; }
+  .field-error { color: #b00; font-size: .85rem; margin-top: .25rem; min-height: 1em; }
+  .stepper { display: flex; align-items: center; gap: .5rem; }
+  .stepper button {
+    width: 2.5rem; height: 2.5rem; font-size: 1.25rem; border: 1px solid #ccc;
+    background: #fff; border-radius: 6px; cursor: pointer;
+  }
+  .stepper input { text-align: center; width: 4rem; }
+  .toggle-row { display: flex; align-items: center; gap: .75rem; margin: 1rem 0 .25rem; }
+  .toggle-row label { margin: 0; }
+  .switch { position: relative; width: 3rem; height: 1.75rem; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; inset: 0; background: #ccc; border-radius: 1rem; transition: .2s; cursor: pointer; }
+  .slider::before {
+    content: ""; position: absolute; height: 1.5rem; width: 1.5rem; left: .125rem; bottom: .125rem;
+    background: #fff; border-radius: 50%; transition: .2s;
+  }
+  .switch input:checked + .slider { background: #3b82f6; }
+  .switch input:checked + .slider::before { transform: translateX(1.25rem); }
+  .pct-buttons { display: flex; gap: .5rem; }
+  .pct-buttons button {
+    flex: 1; padding: .75rem; font-size: 1rem; border: 1px solid #ccc; border-radius: 6px;
+    background: #fff; cursor: pointer;
+  }
+  .pct-buttons button.selected { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+  .preview {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 1rem; margin: 1.5rem 0;
+  }
+  .preview-row { display: flex; justify-content: space-between; padding: .25rem 0; }
+  .preview-row.total { border-top: 1px solid #ddd; margin-top: .5rem; padding-top: .5rem; font-weight: 600; }
+  .submit-btn {
+    width: 100%; padding: 1rem; font-size: 1.1rem; font-weight: 600;
+    background: #3b82f6; color: #fff; border: 0; border-radius: 8px; cursor: pointer;
+  }
+  .submit-btn:disabled { background: #aaa; cursor: not-allowed; }
+  .banner { padding: .75rem; border-radius: 6px; margin: 1rem 0; }
+  .banner.error { background: #fee; color: #900; border: 1px solid #f99; }
+  .banner.success { background: #efe; color: #060; border: 1px solid #9d9; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<h1>Shift Tip Entry</h1>
+
+<div id="banner" class="banner hidden"></div>
+
+<form id="shift-form" novalidate>
+  <label for="entered-by">Your name</label>
+  <input type="text" id="entered-by" autocomplete="off" maxlength="60">
+  <div class="field-error" id="err-entered-by"></div>
+
+  <label for="total-tips">Total tip amount ($)</label>
+  <input type="number" id="total-tips" inputmode="decimal" step="0.01" min="1" max="100000">
+  <div class="field-error" id="err-total-tips"></div>
+
+  <label>Number of full servers</label>
+  <div class="stepper">
+    <button type="button" id="srv-minus" aria-label="Decrease">&minus;</button>
+    <input type="number" id="num-servers" value="1" min="1" max="6" readonly>
+    <button type="button" id="srv-plus" aria-label="Increase">+</button>
+  </div>
+  <div class="field-error"></div>
+
+  <div id="server-names-container"></div>
+
+  <div class="toggle-row">
+    <label class="switch">
+      <input type="checkbox" id="trainee-toggle">
+      <span class="slider"></span>
+    </label>
+    <label for="trainee-toggle">Trainee on shift</label>
+  </div>
+
+  <div id="trainee-fields" class="hidden">
+    <label for="trainee-name">Trainee name</label>
+    <input type="text" id="trainee-name" autocomplete="off" maxlength="40">
+    <div class="field-error" id="err-trainee-name"></div>
+
+    <label>Trainee level</label>
+    <div class="pct-buttons" id="pct-buttons">
+      <button type="button" data-pct="25">25%</button>
+      <button type="button" data-pct="50" class="selected">50%</button>
+      <button type="button" data-pct="75">75%</button>
+    </div>
+  </div>
+
+  <div class="preview" id="preview" aria-live="polite">
+    <div class="preview-row"><span>Enter tip amount to see split</span></div>
+  </div>
+
+  <button type="submit" class="submit-btn" id="submit-btn">Submit shift</button>
+</form>
+
+<script src="calc.js"></script>
+<script>
+const ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbyvxUBapgpbZpf-ndoexuH2ZjWIwO5bIzH26F-OeWmEcQY4QqbeFXs2lvRTarhlaFtHtQ/exec";
+
+let numServers = 1;
+let traineeOn = false;
+let traineePct = 50;
+
+const totalTipsEl = document.getElementById("total-tips");
+const enteredByEl = document.getElementById("entered-by");
+const srvCountEl = document.getElementById("num-servers");
+const srvPlusEl = document.getElementById("srv-plus");
+const srvMinusEl = document.getElementById("srv-minus");
+const namesContainer = document.getElementById("server-names-container");
+const traineeToggle = document.getElementById("trainee-toggle");
+const traineeFields = document.getElementById("trainee-fields");
+const traineeNameEl = document.getElementById("trainee-name");
+const pctButtonsEl = document.getElementById("pct-buttons");
+const previewEl = document.getElementById("preview");
+
+function renderServerNameInputs() {
+  const existing = Array.from(namesContainer.querySelectorAll("input")).map(i => i.value);
+  namesContainer.innerHTML = "";
+  for (let i = 0; i < numServers; i++) {
+    const label = document.createElement("label");
+    label.textContent = `Server ${i + 1} name`;
+    namesContainer.appendChild(label);
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.autocomplete = "off";
+    input.maxLength = 40;
+    input.value = existing[i] || "";
+    input.dataset.serverIndex = String(i);
+    input.addEventListener("input", updatePreview);
+    namesContainer.appendChild(input);
+
+    const err = document.createElement("div");
+    err.className = "field-error";
+    err.dataset.errFor = `server-${i}`;
+    namesContainer.appendChild(err);
+  }
+}
+
+function updateServerCount(delta) {
+  const next = numServers + delta;
+  if (next < 1 || next > 6) return;
+  numServers = next;
+  srvCountEl.value = String(numServers);
+  renderServerNameInputs();
+  updatePreview();
+}
+
+srvPlusEl.addEventListener("click", () => updateServerCount(1));
+srvMinusEl.addEventListener("click", () => updateServerCount(-1));
+
+traineeToggle.addEventListener("change", () => {
+  traineeOn = traineeToggle.checked;
+  traineeFields.classList.toggle("hidden", !traineeOn);
+  if (traineeOn) {
+    traineePct = 50;
+    pctButtonsEl.querySelectorAll("button").forEach(b => {
+      b.classList.toggle("selected", b.dataset.pct === "50");
+    });
+  }
+  updatePreview();
+});
+
+pctButtonsEl.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-pct]");
+  if (!btn) return;
+  traineePct = parseInt(btn.dataset.pct, 10);
+  pctButtonsEl.querySelectorAll("button").forEach(b => {
+    b.classList.toggle("selected", b === btn);
+  });
+  updatePreview();
+});
+
+traineeNameEl.addEventListener("input", updatePreview);
+totalTipsEl.addEventListener("input", updatePreview);
+
+function fmt(n) {
+  return "$" + n.toFixed(2);
+}
+
+function readFormSnapshot() {
+  const totalTips = parseFloat(totalTipsEl.value);
+  const serverNames = Array.from(namesContainer.querySelectorAll("input")).map(i => i.value.trim());
+  const trainee = traineeOn
+    ? { name: traineeNameEl.value.trim(), pct: traineePct }
+    : null;
+  return { totalTips, serverNames, trainee };
+}
+
+function updatePreview() {
+  const snap = readFormSnapshot();
+  if (!isFinite(snap.totalTips) || snap.totalTips < 1) {
+    previewEl.innerHTML = `<div class="preview-row"><span>Enter tip amount to see split</span></div>`;
+    return;
+  }
+  const splits = splitShift(snap);
+  const rows = [];
+  rows.push(`<div class="preview-row"><span>Kitchen</span><span>${fmt(splits.kitchen)}</span></div>`);
+  rows.push(`<div class="preview-row"><span>Chefs</span><span>${fmt(splits.chefs)}</span></div>`);
+  for (let i = 0; i < snap.serverNames.length; i++) {
+    const label = snap.serverNames[i] || `Server ${i + 1}`;
+    rows.push(`<div class="preview-row"><span>${escapeHtml(label)}</span><span>${fmt(splits.perServer)}</span></div>`);
+  }
+  if (snap.trainee) {
+    const label = snap.trainee.name || "Trainee";
+    rows.push(`<div class="preview-row"><span>${escapeHtml(label)} (${snap.trainee.pct}%)</span><span>${fmt(splits.trainee)}</span></div>`);
+  }
+  const sum = splits.kitchen + splits.chefs + splits.perServer * snap.serverNames.length + (splits.trainee || 0);
+  rows.push(`<div class="preview-row total"><span>Total</span><span>${fmt(sum)}</span></div>`);
+  previewEl.innerHTML = rows.join("");
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
+renderServerNameInputs();
+updatePreview();
+
+let submissionId = newSubmissionId();
+function newSubmissionId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return "sid-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+}
+
+const form = document.getElementById("shift-form");
+const submitBtn = document.getElementById("submit-btn");
+const bannerEl = document.getElementById("banner");
+
+function showBanner(kind, html) {
+  bannerEl.className = `banner ${kind}`;
+  bannerEl.innerHTML = html;
+  bannerEl.classList.remove("hidden");
+}
+function hideBanner() {
+  bannerEl.classList.add("hidden");
+  bannerEl.innerHTML = "";
+}
+
+function setFieldError(id, msg) {
+  const errEl = document.getElementById(id);
+  if (errEl) errEl.textContent = msg || "";
+  const inputId = id.replace(/^err-/, "");
+  const inputEl = document.getElementById(inputId);
+  if (inputEl) inputEl.classList.toggle("error", !!msg);
+}
+
+function clearAllErrors() {
+  ["err-entered-by", "err-total-tips", "err-trainee-name"].forEach(id => setFieldError(id, ""));
+  namesContainer.querySelectorAll(".field-error").forEach(e => e.textContent = "");
+  namesContainer.querySelectorAll("input").forEach(i => i.classList.remove("error"));
+}
+
+function validateClient() {
+  clearAllErrors();
+  let ok = true;
+
+  if (!enteredByEl.value.trim()) {
+    setFieldError("err-entered-by", "Required");
+    ok = false;
+  }
+  const tips = parseFloat(totalTipsEl.value);
+  if (!isFinite(tips) || tips < 1 || tips > 100000) {
+    setFieldError("err-total-tips", "Enter an amount between $1 and $100,000");
+    ok = false;
+  }
+  const serverInputs = Array.from(namesContainer.querySelectorAll("input"));
+  serverInputs.forEach((inp, i) => {
+    if (!inp.value.trim()) {
+      const errEl = namesContainer.querySelector(`[data-err-for="server-${i}"]`);
+      if (errEl) errEl.textContent = "Required";
+      inp.classList.add("error");
+      ok = false;
+    }
+  });
+  if (traineeOn && !traineeNameEl.value.trim()) {
+    setFieldError("err-trainee-name", "Required");
+    ok = false;
+  }
+  return ok;
+}
+
+function buildPayload() {
+  const snap = readFormSnapshot();
+  return {
+    submissionId,
+    enteredBy: enteredByEl.value.trim(),
+    totalTips: snap.totalTips,
+    serverNames: snap.serverNames,
+    trainee: snap.trainee,
+  };
+}
+
+async function submitShift() {
+  hideBanner();
+  if (!validateClient()) return;
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Submitting...";
+
+  let response;
+  try {
+    const res = await fetch(ENDPOINT_URL, {
+      method: "POST",
+      mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(buildPayload()),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    response = await res.json();
+  } catch (e) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Submit shift";
+    showBanner("error", "Could not save. Check your connection and tap Submit again.");
+    return;
+  }
+
+  submitBtn.disabled = false;
+  submitBtn.textContent = "Submit shift";
+
+  if (response.ok) {
+    renderConfirmation(response);
+  } else if (response.retryable) {
+    showBanner("error", "Could not save. Try again in a few seconds.");
+  } else {
+    showBanner("error", "Something was wrong with your entry: " + escapeHtml(response.error || "Unknown error"));
+  }
+}
+
+function renderConfirmation(response) {
+  const splits = response.splits;
+  const rows = [];
+  rows.push(`<strong>${response.dedup ? "Previously recorded shift" : "Shift recorded"}</strong>`);
+  rows.push(`<div class="preview-row"><span>Kitchen</span><span>${fmt(splits.kitchen)}</span></div>`);
+  rows.push(`<div class="preview-row"><span>Chefs</span><span>${fmt(splits.chefs)}</span></div>`);
+  const names = Array.from(namesContainer.querySelectorAll("input")).map(i => i.value.trim());
+  names.forEach(n => {
+    rows.push(`<div class="preview-row"><span>${escapeHtml(n)}</span><span>${fmt(splits.perServer)}</span></div>`);
+  });
+  if (splits.trainee != null) {
+    rows.push(`<div class="preview-row"><span>${escapeHtml(traineeNameEl.value.trim())} (${traineePct}%)</span><span>${fmt(splits.trainee)}</span></div>`);
+  }
+  rows.push(`<button type="button" id="reset-btn" class="submit-btn" style="margin-top:1rem">Record another shift</button>`);
+
+  form.classList.add("hidden");
+  showBanner("success", rows.join(""));
+  document.getElementById("reset-btn").addEventListener("click", resetForm);
+}
+
+function resetForm() {
+  hideBanner();
+  form.classList.remove("hidden");
+  form.reset();
+  numServers = 1;
+  traineeOn = false;
+  traineePct = 50;
+  srvCountEl.value = "1";
+  traineeFields.classList.add("hidden");
+  pctButtonsEl.querySelectorAll("button").forEach(b => {
+    b.classList.toggle("selected", b.dataset.pct === "50");
+  });
+  clearAllErrors();
+  renderServerNameInputs();
+  submissionId = newSubmissionId();
+  updatePreview();
+  enteredByEl.focus();
+}
+
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  submitShift();
+});
+</script>
+
+</body>
+</html>

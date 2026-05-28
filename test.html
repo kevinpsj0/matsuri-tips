@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>calc.js tests</title>
+<style>
+  body { font: 14px/1.4 -apple-system, system-ui, sans-serif; padding: 1rem; max-width: 720px; }
+  .pass { color: #060; }
+  .fail { color: #b00; font-weight: bold; }
+  pre { background: #f4f4f4; padding: .5rem; overflow-x: auto; }
+  h2 { margin: 1.5rem 0 .5rem; }
+</style>
+</head>
+<body>
+<h1>calc.js tests</h1>
+<div id="results"></div>
+<script src="calc.js"></script>
+<script>
+const results = document.getElementById("results");
+let passed = 0, failed = 0;
+
+function assertEq(actual, expected, label) {
+  const a = JSON.stringify(actual);
+  const e = JSON.stringify(expected);
+  const ok = a === e;
+  const div = document.createElement("div");
+  div.className = ok ? "pass" : "fail";
+  div.innerHTML = `${ok ? "PASS" : "FAIL"} — ${label}` + (ok ? "" : `<pre>expected: ${e}\nactual:   ${a}</pre>`);
+  results.appendChild(div);
+  ok ? passed++ : failed++;
+}
+
+function test(name, fn) {
+  const h = document.createElement("h2");
+  h.textContent = name;
+  results.appendChild(h);
+  try { fn(); } catch (e) {
+    const div = document.createElement("div");
+    div.className = "fail";
+    div.textContent = `FAIL — threw: ${e.message}`;
+    results.appendChild(div);
+    failed++;
+  }
+}
+
+test("spec example: $1000, 2 servers, trainee @ 50%", () => {
+  const out = splitShift({
+    totalTips: 1000,
+    serverNames: ["Alice", "Bob"],
+    trainee: { name: "Charlie", pct: 50 }
+  });
+  assertEq(out, { kitchen: 100, chefs: 450, perServer: 180, trainee: 90 }, "exact split");
+});
+
+test("no trainee, $200, 2 servers", () => {
+  const out = splitShift({
+    totalTips: 200,
+    serverNames: ["A", "B"],
+    trainee: null
+  });
+  assertEq(out, { kitchen: 20, chefs: 90, perServer: 45 }, "no trainee key");
+});
+
+test("1 server, no trainee, $100.50", () => {
+  const out = splitShift({
+    totalTips: 100.5,
+    serverNames: ["Solo"],
+    trainee: null
+  });
+  assertEq(out, { kitchen: 10.05, chefs: 45.22, perServer: 45.23 }, "single server keeps full pool");
+});
+
+test("$100.07, 3 servers + 1 trainee @ 25%", () => {
+  const out = splitShift({
+    totalTips: 100.07,
+    serverNames: ["A", "B", "C"],
+    trainee: { name: "T", pct: 25 }
+  });
+  assertEq(out, { kitchen: 10.01, chefs: 45.05, perServer: 13.85, trainee: 3.46 }, "residual to chefs");
+});
+
+test("sum invariant: every result sums to T_cents", () => {
+  const cases = [
+    { totalTips: 1, serverNames: ["A"], trainee: null },
+    { totalTips: 7.77, serverNames: ["A", "B", "C"], trainee: { name: "T", pct: 75 } },
+    { totalTips: 12345.67, serverNames: ["A", "B", "C", "D", "E", "F"], trainee: { name: "T", pct: 50 } },
+    { totalTips: 333.33, serverNames: ["A", "B"], trainee: { name: "T", pct: 25 } },
+  ];
+  for (const c of cases) {
+    const out = splitShift(c);
+    const sum = Math.round((out.kitchen + out.chefs + (out.perServer * c.serverNames.length) + (out.trainee || 0)) * 100);
+    const expected = Math.round(c.totalTips * 100);
+    assertEq(sum, expected, `sum equals T_cents for ${JSON.stringify(c)}`);
+  }
+});
+
+test("minimum input: $1.00, 1 server", () => {
+  const out = splitShift({ totalTips: 1, serverNames: ["A"], trainee: null });
+  assertEq(out, { kitchen: 0.10, chefs: 0.45, perServer: 0.45 }, "$1 splits cleanly");
+});
+
+test("response has no trainee key when input trainee is null", () => {
+  const out = splitShift({ totalTips: 100, serverNames: ["A"], trainee: null });
+  assertEq("trainee" in out, false, "no trainee key");
+});
+
+window.addEventListener("load", () => {
+  const summary = document.createElement("h2");
+  summary.textContent = `${passed} passed, ${failed} failed`;
+  summary.style.color = failed ? "#b00" : "#060";
+  results.appendChild(summary);
+});
+</script>
+</body>
+</html>
