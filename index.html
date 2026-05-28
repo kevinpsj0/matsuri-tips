@@ -73,6 +73,16 @@
   .banner { padding: .75rem; border-radius: 6px; margin: 1rem 0; }
   .banner.error { background: #fee; color: #900; border: 1px solid #f99; }
   .banner.success { background: #efe; color: #060; border: 1px solid #9d9; }
+  .combo { position: relative; }
+  .combo-list {
+    position: absolute; top: 100%; left: 0; right: 0; z-index: 30;
+    background: #fff; border: 1px solid #bbb; border-top: 0;
+    border-radius: 0 0 6px 6px; max-height: 240px; overflow-y: auto;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.16);
+  }
+  .combo-list .opt { padding: .75rem; cursor: pointer; border-top: 1px solid #eee; }
+  .combo-list .opt:first-child { border-top: 0; }
+  .combo-list .opt:active, .combo-list .opt.active { background: #e8f0ff; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -84,7 +94,10 @@
 
 <form id="shift-form" novalidate>
   <label for="entered-by">Your name</label>
-  <input type="text" id="entered-by" list="staff-names" autocomplete="off" maxlength="60">
+  <div class="combo">
+    <input type="text" id="entered-by" autocomplete="off" maxlength="60">
+    <div class="combo-list hidden"></div>
+  </div>
   <div class="field-error" id="err-entered-by"></div>
 
   <label for="total-tips">Total tip amount ($)</label>
@@ -111,7 +124,10 @@
 
   <div id="trainee-fields" class="hidden">
     <label for="trainee-name">Trainee name</label>
-    <input type="text" id="trainee-name" list="staff-names" autocomplete="off" maxlength="40">
+    <div class="combo">
+      <input type="text" id="trainee-name" autocomplete="off" maxlength="40">
+      <div class="combo-list hidden"></div>
+    </div>
     <div class="field-error" id="err-trainee-name"></div>
 
     <label>Trainee level</label>
@@ -128,8 +144,6 @@
 
   <button type="submit" class="submit-btn" id="submit-btn">Submit shift</button>
 </form>
-
-<datalist id="staff-names"></datalist>
 
 <script src="calc.js"></script>
 <script>
@@ -159,15 +173,24 @@ function renderServerNameInputs() {
     label.textContent = `Server ${i + 1} name`;
     namesContainer.appendChild(label);
 
+    const combo = document.createElement("div");
+    combo.className = "combo";
+
     const input = document.createElement("input");
     input.type = "text";
     input.autocomplete = "off";
     input.maxLength = 40;
-    input.setAttribute("list", "staff-names");
     input.value = existing[i] || "";
     input.dataset.serverIndex = String(i);
     input.addEventListener("input", updatePreview);
-    namesContainer.appendChild(input);
+    combo.appendChild(input);
+
+    const list = document.createElement("div");
+    list.className = "combo-list hidden";
+    combo.appendChild(list);
+
+    namesContainer.appendChild(combo);
+    attachCombo(input);
 
     const err = document.createElement("div");
     err.className = "field-error";
@@ -256,15 +279,44 @@ function escapeHtml(s) {
 }
 
 const STAFF_KEY = "matsuri_staff";
-function populateStaffDatalist(names) {
-  const dl = document.getElementById("staff-names");
-  if (!dl) return;
-  dl.innerHTML = names.map(n => `<option>${escapeHtml(n)}</option>`).join("");
+let staffNames = [];
+
+function setStaffNames(names) {
+  staffNames = Array.isArray(names) ? names : [];
+  const a = document.activeElement;
+  if (a && a.parentElement && a.parentElement.classList.contains("combo")) renderComboList(a);
 }
+
+function renderComboList(input) {
+  const panel = input.parentElement.querySelector(".combo-list");
+  if (!panel) return;
+  const q = input.value.trim().toLowerCase();
+  const matches = staffNames.filter(n => n.toLowerCase().indexOf(q) !== -1);
+  if (!matches.length) { panel.innerHTML = ""; panel.classList.add("hidden"); return; }
+  panel.innerHTML = matches.map(n => `<div class="opt" role="option">${escapeHtml(n)}</div>`).join("");
+  panel.classList.remove("hidden");
+}
+
+function attachCombo(input) {
+  const panel = input.parentElement.querySelector(".combo-list");
+  if (!panel) return;
+  input.addEventListener("focus", () => renderComboList(input));
+  input.addEventListener("input", () => renderComboList(input));
+  input.addEventListener("blur", () => setTimeout(() => panel.classList.add("hidden"), 150));
+  panel.addEventListener("pointerdown", (e) => {
+    const opt = e.target.closest(".opt");
+    if (!opt) return;
+    e.preventDefault(); // keep focus so the tap doesn't blur before we read it
+    input.value = opt.textContent;
+    panel.classList.add("hidden");
+    updatePreview();
+  });
+}
+
 function loadStaff() {
   try {
     const cached = JSON.parse(localStorage.getItem(STAFF_KEY) || "[]");
-    if (Array.isArray(cached) && cached.length) populateStaffDatalist(cached);
+    if (Array.isArray(cached) && cached.length) setStaffNames(cached);
   } catch (e) {}
   fetch(ENDPOINT_URL, {
     method: "POST",
@@ -275,7 +327,7 @@ function loadStaff() {
     .then(r => r.json())
     .then(data => {
       if (data && data.ok && Array.isArray(data.staff)) {
-        populateStaffDatalist(data.staff);
+        setStaffNames(data.staff);
         localStorage.setItem(STAFF_KEY, JSON.stringify(data.staff));
       }
     })
@@ -284,6 +336,8 @@ function loadStaff() {
 
 renderServerNameInputs();
 updatePreview();
+attachCombo(enteredByEl);
+attachCombo(traineeNameEl);
 loadStaff();
 
 let submissionId = newSubmissionId();
