@@ -259,7 +259,7 @@ const STAFF_KEY = "matsuri_staff";
 function populateStaffDatalist(names) {
   const dl = document.getElementById("staff-names");
   if (!dl) return;
-  dl.innerHTML = names.map(n => `<option value="${escapeHtml(n)}"></option>`).join("");
+  dl.innerHTML = names.map(n => `<option>${escapeHtml(n)}</option>`).join("");
 }
 function loadStaff() {
   try {
