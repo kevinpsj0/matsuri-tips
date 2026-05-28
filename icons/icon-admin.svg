@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#26406F"/>
+      <stop offset="1" stop-color="#0E1A33"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F4D389"/>
+      <stop offset="1" stop-color="#D6A04C"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.40" r="0.5">
+      <stop offset="0" stop-color="#F4D389" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#F4D389" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="256" cy="196" r="150" fill="url(#glow)"/>
+
+  <g fill="url(#gold)">
+    <!-- shimaki: thin top cap -->
+    <rect x="104" y="118" width="304" height="15" rx="7"/>
+    <!-- kasagi: main top beam -->
+    <rect x="120" y="135" width="272" height="28" rx="6"/>
+    <!-- gakuzuka: center tablet -->
+    <rect x="244" y="163" width="24" height="36"/>
+    <!-- nuki: lower beam -->
+    <rect x="146" y="197" width="220" height="26" rx="4"/>
+    <!-- left pillar -->
+    <polygon points="172,197 194,197 198,392 158,392"/>
+    <!-- right pillar -->
+    <polygon points="318,197 340,197 354,392 314,392"/>
+    <!-- ascending stat bars between the pillars -->
+    <rect x="214" y="350" width="26" height="42" rx="3"/>
+    <rect x="247" y="318" width="26" height="74" rx="3"/>
+    <rect x="280" y="286" width="26" height="106" rx="3"/>
+  </g>
+</svg>

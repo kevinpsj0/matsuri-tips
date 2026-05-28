@@ -87,6 +87,46 @@ function dedupResponseFromRow(sheet, rowIndex) {
   return { ok: true, dedup: true, splits: splits };
 }
 
+// Read path for the admin dashboard. PIN is checked against the ADMIN_PIN
+// Script Property (Project Settings -> Script Properties), never stored in code.
+function handleFetchData(payload) {
+  const storedPin = PropertiesService.getScriptProperties().getProperty("ADMIN_PIN");
+  if (!storedPin) {
+    return jsonResponse({ ok: false, error: "Admin access is not configured yet." });
+  }
+  if (typeof payload.pin !== "string" || payload.pin !== storedPin) {
+    Utilities.sleep(1000); // slow down brute-force guessing
+    return jsonResponse({ ok: false, error: "Wrong PIN." });
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheets()[0];
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return jsonResponse({ ok: true, rows: [] });
+
+  const tz = ss.getSpreadsheetTimeZone();
+  const asDateStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "yyyy-MM-dd") : String(v || "");
+  const asTimeStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "HH:mm") : String(v || "");
+  const numOrNull = (v) => (v === "" || v === null || v === undefined) ? null : Number(v);
+
+  const values = sheet.getRange(2, 1, lastRow - 1, COL.SUBMISSION_ID).getValues();
+  const rows = values.map((r) => ({
+    date: asDateStr(r[COL.DATE - 1]),
+    time: asTimeStr(r[COL.TIME - 1]),
+    enteredBy: String(r[COL.ENTERED_BY - 1] || ""),
+    totalTips: Number(r[COL.TOTAL_TIPS - 1]) || 0,
+    numServers: Number(r[COL.NUM_SERVERS - 1]) || 0,
+    serverNames: String(r[COL.SERVER_NAMES - 1] || ""),
+    traineeName: String(r[COL.TRAINEE_NAME - 1] || ""),
+    traineePct: numOrNull(r[COL.TRAINEE_PCT - 1]),
+    kitchen: Number(r[COL.KITCHEN - 1]) || 0,
+    chefs: Number(r[COL.CHEFS - 1]) || 0,
+    perServer: Number(r[COL.PER_SERVER - 1]) || 0,
+    traineeAmt: numOrNull(r[COL.TRAINEE_AMT - 1]),
+  }));
+  return jsonResponse({ ok: true, rows: rows });
+}
+
 function doPost(e) {
   let payload;
   try {
@@ -94,6 +134,11 @@ function doPost(e) {
   } catch (parseErr) {
     return jsonResponse({ ok: false, retryable: false, error: "Invalid JSON" });
   }
+
+  if (payload && payload.action === "fetchData") {
+    return handleFetchData(payload);
+  }
+
   const validationError = validatePayload(payload);
   if (validationError) {
     return jsonResponse({ ok: false, retryable: false, error: validationError });
@@ -161,6 +206,12 @@ function setupSheet() {
   sheet.getRange("D:D").setNumberFormat("$#,##0.00");
   sheet.getRange("I:L").setNumberFormat("$#,##0.00");
 }
+
+// Admin PIN setup: the dashboard reads ADMIN_PIN from Script Properties.
+// Set it once via Apps Script editor -> Project Settings -> Script Properties
+// (add key ADMIN_PIN). The deployed copy also carries a one-off setAdminPin()
+// helper with the value baked in; that helper is intentionally kept out of
+// version control so the PIN never lands in this public repo.
 
 // Manual smoke test runnable inside the Apps Script editor.
 // Pass an explicit submissionId string to exercise the dedup path:

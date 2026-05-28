@@ -1,4 +1,4 @@
-const CACHE = "matsuri-tips-v1";
+const CACHE = "matsuri-tips-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -8,6 +8,13 @@ const ASSETS = [
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png",
   "./icons/icon.svg",
+  "./admin.html",
+  "./admin.js",
+  "./admin.webmanifest",
+  "./icons/icon-admin.svg",
+  "./icons/icon-192-admin.png",
+  "./icons/icon-512-admin.png",
+  "./icons/apple-touch-icon-admin.png",
 ];
 
 self.addEventListener("install", (e) => {
@@ -29,8 +36,8 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
 
-  // Keep the page and the split logic fresh when online; fall back to cache offline.
-  const freshFirst = req.mode === "navigate" || url.pathname.endsWith("/calc.js");
+  // Keep the pages and app logic fresh when online; fall back to cache offline.
+  const freshFirst = req.mode === "navigate" || url.pathname.endsWith("/calc.js") || url.pathname.endsWith("/admin.js");
   if (freshFirst) {
     e.respondWith(
       fetch(req)
@@ -41,7 +48,7 @@ self.addEventListener("fetch", (e) => {
         })
         .catch(() =>
           caches.match(req)
-            .then((c) => c || (req.mode === "navigate" ? caches.match("./index.html") : undefined))
+            .then((c) => c || (req.mode === "navigate" ? caches.match(url.pathname.includes("admin") ? "./admin.html" : "./index.html") : undefined))
             .then((c) => c || new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } }))
         )
     );

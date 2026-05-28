@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Matsuri Tips Admin</title>
+<link rel="manifest" href="admin.webmanifest">
+<meta name="theme-color" content="#14223F">
+<link rel="icon" href="icons/icon-admin.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-admin.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tips Admin">
+<style>
+  :root {
+    --indigo: #14223F;
+    --indigo-soft: #26406F;
+    --gold: #D6A04C;
+    --gold-light: #F4D389;
+    --ink: #1c2333;
+    --muted: #6b7280;
+    --line: #e4e7ee;
+    --bg: #f4f5f8;
+    --card: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 0 1rem 3rem; }
+
+  /* PIN gate */
+  #gate {
+    position: fixed; inset: 0; background: linear-gradient(160deg, #26406F, #0E1A33);
+    display: flex; align-items: center; justify-content: center; padding: 1.5rem; z-index: 20;
+  }
+  #gate.hidden { display: none; }
+  .gate-card {
+    width: 100%; max-width: 340px; background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(244,211,137,0.25); border-radius: 16px; padding: 1.75rem 1.5rem;
+    text-align: center; color: #fff; backdrop-filter: blur(4px);
+  }
+  .gate-card img { width: 76px; height: 76px; display: block; margin: 0 auto .75rem; }
+  .gate-card h1 { font-size: 1.15rem; margin: 0 0 .25rem; font-weight: 600; letter-spacing: .01em; }
+  .gate-card p { margin: 0 0 1.25rem; color: #c9d2e6; font-size: .9rem; }
+  .gate-card input {
+    width: 100%; padding: .85rem; font-size: 1.4rem; text-align: center; letter-spacing: .4em;
+    border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; background: rgba(0,0,0,0.25);
+    color: #fff; margin-bottom: .75rem;
+  }
+  .gate-card input:focus { outline: 2px solid var(--gold); }
+  .gate-card button {
+    width: 100%; padding: .85rem; font-size: 1.05rem; font-weight: 600; cursor: pointer;
+    border: 0; border-radius: 10px; background: linear-gradient(180deg, var(--gold-light), var(--gold));
+    color: #2a1c00;
+  }
+  .gate-card button:disabled { opacity: .6; cursor: default; }
+  .gate-err { color: #ffb4b4; font-size: .88rem; min-height: 1.2em; margin-top: .6rem; }
+
+  /* Header */
+  header.bar {
+    background: linear-gradient(160deg, var(--indigo-soft), var(--indigo));
+    color: #fff; padding: 1rem 0 1.1rem;
+  }
+  header.bar .wrap { display: flex; align-items: center; gap: .6rem; padding-bottom: 0; }
+  header.bar img { width: 30px; height: 30px; }
+  header.bar h1 { font-size: 1.1rem; margin: 0; font-weight: 600; flex: 1; }
+  .iconbtn {
+    background: rgba(255,255,255,0.12); border: 0; color: #fff; border-radius: 8px;
+    padding: .45rem .7rem; font-size: .82rem; cursor: pointer;
+  }
+  .iconbtn:active { background: rgba(255,255,255,0.22); }
+
+  /* Period selector */
+  .periods { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1rem 0 .25rem; }
+  .periods button {
+    flex: 1 1 auto; min-width: 4.2rem; padding: .55rem .4rem; font-size: .9rem; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink);
+  }
+  .periods button.active { background: var(--indigo); color: #fff; border-color: var(--indigo); }
+  .custom-range { display: none; gap: .5rem; margin-top: .5rem; align-items: center; }
+  .custom-range.show { display: flex; }
+  .custom-range input { flex: 1; padding: .5rem; border: 1px solid var(--line); border-radius: 8px; font-size: .9rem; min-width: 0; }
+  .range-label { color: var(--muted); font-size: .82rem; margin: .5rem 0 0; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: .25rem; margin: 1rem 0; background: #e9ecf3; border-radius: 10px; padding: .25rem; }
+  .tabs button {
+    flex: 1; padding: .55rem .3rem; font-size: .88rem; cursor: pointer; border: 0; border-radius: 8px;
+    background: transparent; color: var(--muted); font-weight: 600;
+  }
+  .tabs button.active { background: #fff; color: var(--indigo); box-shadow: 0 1px 3px rgba(20,34,63,0.12); }
+
+  /* Cards */
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: .6rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .85rem .9rem;
+  }
+  .card .k { font-size: .76rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .card .v { font-size: 1.25rem; font-weight: 700; margin-top: .15rem; }
+  .card.hero { grid-column: 1 / -1; background: linear-gradient(160deg, var(--indigo-soft), var(--indigo)); border: 0; color: #fff; }
+  .card.hero .k { color: #c9d2e6; }
+  .card.hero .v { font-size: 1.9rem; color: var(--gold-light); }
+
+  .panel {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1rem; margin-top: .9rem;
+  }
+  .panel h2 { font-size: .95rem; margin: 0 0 .75rem; color: var(--indigo); }
+
+  /* Bar chart */
+  .chart { width: 100%; height: auto; display: block; }
+  .chart .bar { fill: var(--gold); }
+  .chart .bar:hover { fill: var(--gold-light); }
+  .chart text { fill: var(--muted); font-size: 10px; }
+
+  /* Calendar */
+  .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .6rem; }
+  .cal-head .m { font-weight: 600; color: var(--indigo); }
+  .cal-head button { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: .35rem .7rem; cursor: pointer; font-size: 1rem; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+  .cal-dow { text-align: center; font-size: .72rem; color: var(--muted); padding: .2rem 0; }
+  .cal-cell { aspect-ratio: 1 / 1; border-radius: 7px; background: #f0f2f7; padding: .25rem; position: relative; overflow: hidden; }
+  .cal-cell.empty { background: transparent; }
+  .cal-cell .d { font-size: .72rem; color: var(--muted); }
+  .cal-cell .amt { font-size: .66rem; font-weight: 700; color: var(--indigo); position: absolute; left: .25rem; right: .25rem; bottom: .2rem; }
+  .cal-cell.today { outline: 2px solid var(--gold); }
+
+  /* Shifts list */
+  .shift { border: 1px solid var(--line); border-radius: 10px; padding: .75rem .85rem; margin-bottom: .6rem; }
+  .shift .top { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
+  .shift .when { font-weight: 600; }
+  .shift .by { color: var(--muted); font-size: .82rem; }
+  .shift .tot { font-weight: 700; color: var(--indigo); }
+  .shift .lines { margin-top: .5rem; border-top: 1px dashed var(--line); padding-top: .5rem; }
+  .ln { display: flex; justify-content: space-between; padding: .12rem 0; font-size: .9rem; }
+  .ln .lbl { color: #374151; }
+  .ln .val { font-variant-numeric: tabular-nums; }
+
+  /* People table */
+  table.people { width: 100%; border-collapse: collapse; }
+  table.people th, table.people td { text-align: left; padding: .55rem .4rem; border-bottom: 1px solid var(--line); font-size: .92rem; }
+  table.people th { color: var(--muted); font-weight: 600; font-size: .76rem; text-transform: uppercase; letter-spacing: .03em; }
+  table.people td.num, table.people th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.people tr:last-child td { border-bottom: 0; }
+
+  .empty-state { text-align: center; color: var(--muted); padding: 2rem 1rem; }
+  .loading { text-align: center; color: var(--muted); padding: 2rem; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="gate-card">
+    <img src="icons/icon-admin.svg" alt="">
+    <h1>Matsuri Tips Admin</h1>
+    <p>Enter your access PIN.</p>
+    <input id="pin-input" type="password" inputmode="numeric" autocomplete="off"
+           maxlength="10" placeholder="------" aria-label="Access PIN">
+    <button id="pin-submit" type="button">Unlock</button>
+    <div class="gate-err" id="gate-err"></div>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <header class="bar">
+    <div class="wrap">
+      <img src="icons/icon-admin.svg" alt="">
+      <h1>Tips Admin</h1>
+      <button class="iconbtn" id="refresh-btn" type="button">Refresh</button>
+      <button class="iconbtn" id="signout-btn" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="periods" id="periods">
+      <button data-period="today" class="active">Today</button>
+      <button data-period="week">This Week</button>
+      <button data-period="month">This Month</button>
+      <button data-period="custom">Custom</button>
+    </div>
+    <div class="custom-range" id="custom-range">
+      <input type="date" id="custom-start" aria-label="Start date">
+      <span>to</span>
+      <input type="date" id="custom-end" aria-label="End date">
+    </div>
+    <p class="range-label" id="range-label"></p>
+
+    <div class="tabs" id="tabs">
+      <button data-tab="summary" class="active">Summary</button>
+      <button data-tab="calendar">Calendar</button>
+      <button data-tab="shifts">Shifts</button>
+      <button data-tab="people">People</button>
+    </div>
+
+    <div id="view"></div>
+  </div>
+</div>
+
+<script src="admin.js"></script>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
+</script>
+</body>
+</html>

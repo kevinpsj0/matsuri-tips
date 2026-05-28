@@ -74,6 +74,28 @@ If you change `apps-script.gs`:
 If you change `index.html` or `calc.js`:
 - Go to your Netlify site → **Deploys** → drag the updated folder onto the deploy page to overwrite.
 
+## Admin dashboard
+
+The admin dashboard (`admin.html`) is a separate, view-only page that reads the
+ledger and shows today's totals, date-range charts, a calendar, per-shift
+detail, and per-person earnings. It lives at the same site, under `/admin.html`.
+
+It is protected by a PIN that is checked on Google's side, so tip numbers are
+never sent to a phone unless the correct PIN is entered.
+
+**Set or change the PIN** (one time):
+
+1. Open the Apps Script editor (from the Sheet: Extensions → Apps Script).
+2. Click the gear icon (**Project Settings**) in the left sidebar.
+3. Scroll to **Script Properties** → **Add script property**.
+4. Property: `ADMIN_PIN`  Value: your PIN (digits). **Save script properties**.
+
+To change the PIN later, edit that same property. No code changes, no redeploy.
+
+**Install on a phone:** open the `/admin.html` link, then "Add to Home Screen"
+(iPhone Safari) or "Install app" (Android Chrome). It installs as "Tips Admin"
+with its own icon, separate from the server entry app.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |
