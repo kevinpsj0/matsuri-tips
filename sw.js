@@ -1,0 +1,64 @@
+const CACHE = "matsuri-tips-v1";
+const ASSETS = [
+  "./",
+  "./index.html",
+  "./calc.js",
+  "./manifest.webmanifest",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./icons/apple-touch-icon.png",
+  "./icons/icon.svg",
+];
+
+self.addEventListener("install", (e) => {
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener("activate", (e) => {
+  e.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("fetch", (e) => {
+  const req = e.request;
+  // Let the form's submit (POST, cross-origin to Apps Script) go straight to the network.
+  if (req.method !== "GET") return;
+  const url = new URL(req.url);
+  if (url.origin !== location.origin) return;
+
+  // Keep the page and the split logic fresh when online; fall back to cache offline.
+  const freshFirst = req.mode === "navigate" || url.pathname.endsWith("/calc.js");
+  if (freshFirst) {
+    e.respondWith(
+      fetch(req)
+        .then((res) => {
+          const clone = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, clone));
+          return res;
+        })
+        .catch(() =>
+          caches.match(req)
+            .then((c) => c || (req.mode === "navigate" ? caches.match("./index.html") : undefined))
+            .then((c) => c || new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } }))
+        )
+    );
+    return;
+  }
+
+  // Cache-first for static assets (icons, manifest).
+  e.respondWith(
+    caches.match(req).then((cached) =>
+      cached ||
+      fetch(req).then((res) => {
+        if (res && res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, clone));
+        }
+        return res;
+      })
+    )
+  );
+});
