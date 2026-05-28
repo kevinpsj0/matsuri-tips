@@ -1,4 +1,4 @@
-const CACHE = "matsuri-tips-v2";
+const CACHE = "matsuri-tips-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -40,7 +40,7 @@ self.addEventListener("fetch", (e) => {
   const freshFirst = req.mode === "navigate" || url.pathname.endsWith("/calc.js") || url.pathname.endsWith("/admin.js");
   if (freshFirst) {
     e.respondWith(
-      fetch(req)
+      fetch(req, { cache: "reload" }) // bypass the HTTP cache so updates aren't masked by it
         .then((res) => {
           const clone = res.clone();
           caches.open(CACHE).then((c) => c.put(req, clone));
