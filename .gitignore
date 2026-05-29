@@ -2,3 +2,7 @@ gas/
 node_modules/
 .DS_Store
 .playwright-mcp/
+
+# clasp project link (script ID kept out of this public repo)
+.clasp.json
+.claspignore
