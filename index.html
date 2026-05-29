@@ -459,6 +459,7 @@ async function submitShift() {
   submitBtn.textContent = "Submit shift";
 
   if (response.ok) {
+    setMe(enteredByEl.value.trim());
     renderConfirmation(response);
   } else if (response.retryable) {
     showBanner("error", "Could not save. Try again in a few seconds.");
@@ -491,10 +492,11 @@ function resetForm() {
   totalTipsEl.value = "";
   peopleContainer.innerHTML = "";
   addPerson();
+  applyRememberedName();
   clearAllErrors();
   submissionId = newSubmissionId();
   updatePreview();
-  enteredByEl.focus();
+  if (getMe()) totalTipsEl.focus(); else enteredByEl.focus();
 }
 
 form.addEventListener("submit", (e) => {
