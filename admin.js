@@ -13,8 +13,9 @@ let allRows = [];
 let staffList = []; // [{ name, active }] from handleFetchData
 let pendingRequests = [];
 let requestsLoadError = "";
-let resolvingRid = "";
-let staffBusy = false;
+// Single mutex shared by every mutating admin action (resolveRequest,
+// addStaff, setStaffActive). Prevents overlapping refresh() calls.
+let actionBusy = false;
 let period = "today";
 let activeTab = "summary";
 let calMonth = null; // { y, m } 1-based month
@@ -138,10 +139,10 @@ async function loadRequests() {
 }
 
 async function addStaff(name) {
-  if (staffBusy) return;
+  if (actionBusy) return;
   name = (name || "").trim();
   if (!name) return;
-  staffBusy = true;
+  actionBusy = true;
   try {
     const res = await fetch(ENDPOINT_URL, {
       method: "POST", mode: "cors",
@@ -153,12 +154,12 @@ async function addStaff(name) {
     await refresh();
   } catch (e) {
     window.alert("Network error. Try again.");
-  } finally { staffBusy = false; }
+  } finally { actionBusy = false; }
 }
 
 async function setStaffActive(name, active) {
-  if (staffBusy) return;
-  staffBusy = true;
+  if (actionBusy) return;
+  actionBusy = true;
   try {
     const res = await fetch(ENDPOINT_URL, {
       method: "POST", mode: "cors",
@@ -170,16 +171,17 @@ async function setStaffActive(name, active) {
     await refresh();
   } catch (e) {
     window.alert("Network error. Try again.");
-  } finally { staffBusy = false; }
+  } finally { actionBusy = false; }
 }
 
 async function resolveRequest(rid, resolution) {
-  if (resolvingRid) return; // ignore double-clicks while a resolve is in flight
+  if (actionBusy) return; // shared mutex with addStaff / setStaffActive
   const verb = resolution === "approve" ? "Approve and apply changes to the ledger?" : "Deny this request?";
   if (!window.confirm(verb)) return;
-  resolvingRid = rid;
+  actionBusy = true;
   // Disable any approve/deny buttons for this rid so a second tap can't fire.
   document.querySelectorAll(`[data-resolve][data-rid="${rid}"]`).forEach((b) => { b.disabled = true; });
+  let needsRender = false;
   try {
     const res = await fetch(ENDPOINT_URL, {
       method: "POST", mode: "cors",
@@ -187,7 +189,14 @@ async function resolveRequest(rid, resolution) {
       body: JSON.stringify({ action: "resolveRequest", pin: sessionPin, requestId: rid, resolution: resolution }),
     });
     const data = await res.json();
-    if (!data || !data.ok) { window.alert((data && data.error) || "Could not resolve."); return; }
+    if (!data || !data.ok) {
+      window.alert((data && data.error) || "Could not resolve.");
+      needsRender = true; // re-render so the disabled buttons come back
+      return;
+    }
+    // Drop the resolved request locally so a failed loadRequests can't leave
+    // it visible and re-clickable.
+    pendingRequests = pendingRequests.filter((r) => r.id !== rid);
     await loadRequests();
     if (resolution === "approve") {
       await refresh();
@@ -196,8 +205,10 @@ async function resolveRequest(rid, resolution) {
     }
   } catch (e) {
     window.alert("Network error. Try again.");
+    needsRender = true;
   } finally {
-    resolvingRid = "";
+    actionBusy = false;
+    if (needsRender) render();
   }
 }
 

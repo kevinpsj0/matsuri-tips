@@ -271,7 +271,10 @@ content.addEventListener("click", (e) => {
   const card = btn.closest(".shift");
   const sid = card.dataset.sid;
   const sh = shiftsMap[sid];
-  if (!sh) return;
+  if (!sh) {
+    alert("That shift is no longer on today's list. Tap Refresh to reload.");
+    return;
+  }
   currentSid = sid;
   editSub.textContent = `Shift ${sh.date} ${sh.time} · ${fmt(sh.totalTips)}. The owner will review.`;
   reqName.value = "";

@@ -135,10 +135,15 @@ function readStaffRows(sheet) {
 function getOrCreateStaffSheet(ss) {
   let sheet = ss.getSheetByName("Staff");
   if (!sheet) {
-    sheet = ss.insertSheet("Staff", ss.getNumSheets());
-    sheet.getRange(1, 1, 1, 2).setValues([["Name", "Active"]]).setFontWeight("bold");
-    sheet.setFrozenRows(1);
-    return sheet;
+    try {
+      sheet = ss.insertSheet("Staff", ss.getNumSheets());
+      sheet.getRange(1, 1, 1, 2).setValues([["Name", "Active"]]).setFontWeight("bold");
+      sheet.setFrozenRows(1);
+      return sheet;
+    } catch (e) {
+      sheet = ss.getSheetByName("Staff");
+      if (!sheet) throw e;
+    }
   }
   // Backfill the Active header without touching existing names.
   if (String(sheet.getRange(1, 2).getValue() || "") !== "Active") {
@@ -344,10 +349,18 @@ function safeText(s) {
 function getOrCreateRequestsSheet(ss) {
   let sheet = ss.getSheetByName("Edit requests");
   if (!sheet) {
-    sheet = ss.insertSheet("Edit requests", ss.getNumSheets()); // append; keep ledger at index 0
-    sheet.getRange(1, 1, 1, EDIT_REQ_HEADER.length).setValues([EDIT_REQ_HEADER]).setFontWeight("bold");
-    sheet.setFrozenRows(1);
-    return sheet;
+    // insertSheet throws if a tab with that name already exists, which can
+    // happen if two staff submit the very first edit request at the same time.
+    // Catch and re-fetch instead of bubbling the exception.
+    try {
+      sheet = ss.insertSheet("Edit requests", ss.getNumSheets()); // append; keep ledger at index 0
+      sheet.getRange(1, 1, 1, EDIT_REQ_HEADER.length).setValues([EDIT_REQ_HEADER]).setFontWeight("bold");
+      sheet.setFrozenRows(1);
+      return sheet;
+    } catch (e) {
+      sheet = ss.getSheetByName("Edit requests");
+      if (!sheet) throw e;
+    }
   }
   const a1 = String(sheet.getRange(1, 1).getValue() || "");
   if (a1 === EDIT_REQ_HEADER[0]) return sheet;
@@ -377,10 +390,12 @@ function handleRequestEdit(payload) {
   if (validation) return jsonResponse({ ok: false, error: validation });
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = getOrCreateRequestsSheet(ss);
 
+  // Resolve the shift in the ledger BEFORE touching the requests sheet. If the
+  // submissionId isn't there (e.g. the shift was deleted), reject the request
+  // up-front instead of writing a phantom row that approval will always fail.
   const tz = ss.getSpreadsheetTimeZone();
-  let shiftDate = "", shiftTime = "";
+  let shiftDate = "", shiftTime = "", found = false;
   const ledger = ss.getSheets()[0];
   const lastRow = ledger.getLastRow();
   if (lastRow >= 2) {
@@ -390,10 +405,14 @@ function handleRequestEdit(payload) {
         const d = r[COL.DATE - 1], t = r[COL.TIME - 1];
         shiftDate = (d instanceof Date) ? Utilities.formatDate(d, tz, "yyyy-MM-dd") : String(d || "");
         shiftTime = (t instanceof Date) ? Utilities.formatDate(t, tz, "HH:mm") : String(t || "");
+        found = true;
         break;
       }
     }
   }
+  if (!found) return jsonResponse({ ok: false, error: "That shift is no longer in the ledger. Tap Refresh and try again." });
+
+  const sheet = getOrCreateRequestsSheet(ss);
   // Re-build proposed from only the validated fields so an oversized or
   // adversarial payload can't bloat the JSON cell or smuggle extra keys.
   const cleanProposed = {
@@ -564,41 +583,53 @@ function handleResolveRequest(payload) {
         ledger.getRange(approvedRowStart, 1, newRows.length, NUM_COLS).setValues(newRows);
       } catch (writeErr) {
         approvedRowStart = -1; approvedRowCount = 0; // write didn't land
-        // Try to put the originals back so the shift isn't lost.
+        // Try to put the originals back so the shift isn't lost. Use a flag so
+        // the rethrow that signals "retryable" can't be re-caught by this same
+        // catch block, which would mask it as a non-retryable CRITICAL error.
+        let restoreOk = false;
         try {
           const restoreStart = ledger.getLastRow() + 1;
           ledger.getRange(restoreStart, 1, ledgerSavedRows.length, NUM_COLS).setValues(ledgerSavedRows);
-          throw writeErr; // write failed but restore succeeded — safe to retry
+          restoreOk = true;
         } catch (restoreErr) {
-          // Both write and restore failed: data is gone, retrying will just say "not found".
           return jsonResponse({
             ok: false,
             retryable: false,
             error: "CRITICAL: ledger write and restore both failed for " + sid + ". The shift rows must be re-entered manually.",
           });
         }
+        if (restoreOk) throw writeErr; // outer catch -> retryable: true
       }
       ledgerWritten = true;
     }
 
     // Mark the request resolved BEFORE the cosmetic recolor step so a recolor
     // failure can't leave the ledger updated but the request stuck "Pending".
+    // Write Status / Resolved at / Resolved by in a single setValues call so
+    // a partial write can't leave Status="Approved" without a resolver. We
+    // read cols 8-9 (Note, Proposed JSON) and pass them through so they're
+    // preserved untouched.
     const nowStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm");
     try {
-      reqSheet.getRange(rowIdx, 7).setValue(resolution === "approve" ? "Approved" : "Denied");
-      reqSheet.getRange(rowIdx, 10).setValue(nowStr);
-      reqSheet.getRange(rowIdx, 11).setValue("admin");
+      const keep = reqSheet.getRange(rowIdx, 8, 1, 2).getValues()[0];
+      reqSheet.getRange(rowIdx, 7, 1, 5).setValues([[
+        resolution === "approve" ? "Approved" : "Denied",
+        keep[0], keep[1], nowStr, "admin",
+      ]]);
     } catch (statusErr) {
       // Ledger has already been updated but the request is still "Pending".
       // If we leave it, an admin retry would re-apply the same changes (or
       // a Deny could mark Denied while the ledger holds the approved data).
       // Attempt to roll the ledger back so the request can be safely retried.
       if (ledgerWritten && approvedRowCount > 0 && ledgerSavedRows) {
+        // Use a flag so the rethrow that signals "retryable" can't be re-caught
+        // by this same catch block, which would mask it as non-retryable.
+        let rollbackOk = false;
         try {
           for (let i = 0; i < approvedRowCount; i++) ledger.deleteRow(approvedRowStart);
           const restoreStart = ledger.getLastRow() + 1;
           ledger.getRange(restoreStart, 1, ledgerSavedRows.length, NUM_COLS).setValues(ledgerSavedRows);
-          throw statusErr; // ledger rolled back; outer catch will return retryable
+          rollbackOk = true;
         } catch (rollbackErr) {
           return jsonResponse({
             ok: false,
@@ -606,10 +637,35 @@ function handleResolveRequest(payload) {
             error: "CRITICAL: status write and ledger rollback both failed for " + sid + ". Manually mark the request resolved and verify the ledger.",
           });
         }
+        if (rollbackOk) throw statusErr; // outer catch -> retryable: true
       }
       throw statusErr;
     }
     if (resolution === "approve") {
+      // Auto-supersede any OTHER pending requests for the same shift so a
+      // stale proposal from before this approval can't silently overwrite
+      // the ledger changes we just applied. handleRequestEdit doesn't hold
+      // the script lock, so rows may have been appended during this lock
+      // window — re-read fresh instead of trusting the start-of-function
+      // snapshot. Best-effort: per-row writes are isolated so a single
+      // failure can't undo the primary approval.
+      const freshLast = reqSheet.getLastRow();
+      const sweepData = (freshLast >= 2)
+        ? reqSheet.getRange(2, 1, freshLast - 1, EDIT_REQ_HEADER.length).getValues()
+        : [];
+      for (let i = 0; i < sweepData.length; i++) {
+        if (i + 2 === rowIdx) continue;
+        const r = sweepData[i];
+        if (String(r[6] || "") !== "Pending") continue;
+        if (String(r[3] || "") !== sid) continue;
+        const otherRow = i + 2;
+        try {
+          const keepO = reqSheet.getRange(otherRow, 8, 1, 2).getValues()[0];
+          reqSheet.getRange(otherRow, 7, 1, 5).setValues([[
+            "Superseded", keepO[0], keepO[1], nowStr, "admin (auto)",
+          ]]);
+        } catch (e) { /* best effort */ }
+      }
       try { recolorShifts(); } catch (e) { /* shading is cosmetic; don't fail the approval */ }
     }
     return jsonResponse({ ok: true });
