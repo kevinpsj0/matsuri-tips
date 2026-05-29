@@ -174,12 +174,53 @@ function renderSummary(rows, start, end) {
       <div class="card"><div class="k">Distinct staff</div><div class="v">${staff.size}</div></div>
     </div>`;
 
-  const days = enumerateDays(start, end);
-  const byDay = {};
-  for (const r of rows) byDay[r.date] = (byDay[r.date] || 0) + r.amount;
-  const series = days.map((d) => ({ label: String(isoParts(d).d), value: byDay[d] || 0 }));
-  const chart = `<div class="panel"><h2>Daily total tips</h2>${buildBarChart(series)}</div>`;
+  let chart;
+  if (start === end) {
+    chart = `<div class="panel"><h2>Shifts across the day</h2>${dayTimelineHtml(rows)}</div>`;
+  } else {
+    const days = enumerateDays(start, end);
+    const byDay = {};
+    for (const r of rows) byDay[r.date] = (byDay[r.date] || 0) + r.amount;
+    const series = days.map((d) => ({ label: String(isoParts(d).d), value: byDay[d] || 0 }));
+    chart = `<div class="panel"><h2>Daily total tips</h2>${buildBarChart(series)}</div>`;
+  }
   return cards + chart;
+}
+
+function dayTimelineHtml(rows) {
+  const shifts = {};
+  for (const r of rows) {
+    const id = r.submissionId || (r.date + r.time);
+    if (!shifts[id]) shifts[id] = { totalTips: r.totalTips, ins: [], outs: [] };
+    const ci = clockMins(r.timeIn), co = clockMins(r.timeOut);
+    if (ci != null) shifts[id].ins.push(ci);
+    if (co != null) shifts[id].outs.push(co);
+  }
+  const list = Object.values(shifts).map((s) => ({
+    totalTips: s.totalTips,
+    start: s.ins.length ? Math.min.apply(null, s.ins) : null,
+    end: s.outs.length ? Math.max.apply(null, s.outs) : null,
+  }));
+  const timed = list.filter((s) => s.start != null && s.end != null && s.end > s.start);
+  if (!timed.length) {
+    const series = list.map((s, i) => ({ label: "Shift " + (i + 1), value: s.totalTips }));
+    return buildBarChart(series);
+  }
+  const axisMin = Math.min.apply(null, timed.map((s) => s.start));
+  const axisMax = Math.max.apply(null, timed.map((s) => s.end));
+  const span = axisMax - axisMin;
+  const ticks = [0, 1, 2, 3].map((i) => `<span>${fmtClock(Math.round(axisMin + span * i / 3))}</span>`).join("");
+  const sorted = list.slice().sort((a, b) => (a.start || 0) - (b.start || 0));
+  const bars = sorted.map((s) => {
+    const hasBar = s.start != null && s.end != null && s.end > s.start && span > 0;
+    const rawWidth = hasBar ? (s.end - s.start) / span * 100 : 100;
+    const w = Math.max(rawWidth, 14); // keep the amount label readable on short shifts
+    const rawLeft = hasBar ? (s.start - axisMin) / span * 100 : 0;
+    const left = Math.min(rawLeft, 100 - w); // keep the bar within the track
+    const range = (s.start != null && s.end != null) ? `${fmtClock(s.start)}–${fmtClock(s.end)}` : "";
+    return `<div class="dl-row"><div class="tl-track"><div class="dl-bar" style="left:${left.toFixed(1)}%;width:${w.toFixed(1)}%" title="${range}"><span class="dl-amt">${fmt(s.totalTips)}</span></div></div></div>`;
+  }).join("");
+  return `<div class="dl-axis"><div class="tl-ticks">${ticks}</div></div><div class="dl-rows">${bars}</div>`;
 }
 
 function buildBarChart(series) {
