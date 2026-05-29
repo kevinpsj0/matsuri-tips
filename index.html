@@ -324,10 +324,39 @@ function updatePreview() {
   previewEl.innerHTML = rows.join("");
 }
 
+const switchUserBtn = document.getElementById("switch-user");
+const meNameEl = document.getElementById("me-name");
+
+function renderSwitchUser() {
+  const me = getMe();
+  meNameEl.textContent = me;
+  switchUserBtn.classList.toggle("hidden", !me);
+}
+
+function applyRememberedName() {
+  const me = getMe();
+  if (!me) { renderSwitchUser(); return; }
+  enteredByEl.value = me;
+  const firstName = peopleContainer.querySelector(".person .p-name");
+  if (firstName && !firstName.value) firstName.value = me;
+  renderSwitchUser();
+}
+
+switchUserBtn.addEventListener("click", () => {
+  setMe("");
+  enteredByEl.value = "";
+  const firstName = peopleContainer.querySelector(".person .p-name");
+  if (firstName) firstName.value = "";
+  renderSwitchUser();
+  updatePreview();
+  enteredByEl.focus();
+});
+
 totalTipsEl.addEventListener("input", updatePreview);
 addPersonBtn.addEventListener("click", addPerson);
 attachCombo(enteredByEl);
 addPerson();
+applyRememberedName();
 updatePreview();
 loadStaff();
 
