@@ -398,34 +398,35 @@ function renderTips(rows) {
 function renderPeople(rows) {
   const people = rows.filter((r) => r.role === "Server" || r.role === "Trainee");
   if (!people.length) return emptyState("No staff in this period.");
-  const agg = {}; // key -> { total, hours, shifts:Set, names: {display: count} }
+  const agg = {}; // key -> { total, hours, shifts:Set, names: {display: count}, traineePct }
   for (const r of people) {
     const name = (r.recipient || "").trim();
     const key = name.toLowerCase();
     if (!key) continue;
-    if (!agg[key]) agg[key] = { total: 0, hours: 0, shifts: new Set(), names: {} };
+    if (!agg[key]) agg[key] = { total: 0, hours: 0, shifts: new Set(), names: {}, traineePct: null };
     agg[key].total += r.amount;
     agg[key].hours += r.hours || 0;
     if (r.submissionId) agg[key].shifts.add(r.submissionId);
     agg[key].names[name] = (agg[key].names[name] || 0) + 1;
+    if (r.role === "Trainee" && r.traineePct != null) agg[key].traineePct = r.traineePct;
   }
   const list = Object.values(agg).map((a) => {
     const display = Object.keys(a.names).sort((x, y) => a.names[y] - a.names[x])[0];
-    return { display, total: a.total, hours: a.hours, shifts: a.shifts.size };
+    return { display, total: a.total, hours: a.hours, shifts: a.shifts.size, traineePct: a.traineePct };
   }).sort((a, b) => b.total - a.total);
 
-  const body = list.map((p) => `<tr>
-      <td>${escapeHtml(p.display)}</td>
-      <td class="num">${p.shifts}</td>
-      <td class="num">${p.hours.toFixed(1)}</td>
-      <td class="num">${fmt(p.total)}</td>
-    </tr>`).join("");
-  return `<div class="panel"><h2>Earnings by person</h2>
-    <table class="people">
-      <thead><tr><th>Name</th><th class="num">Shifts</th><th class="num">Hours</th><th class="num">Earned</th></tr></thead>
-      <tbody>${body}</tbody>
-    </table>
-  </div>`;
+  const max = Math.max(1, ...list.map((p) => p.total));
+  const body = list.map((p) => {
+    const w = p.total > 0 ? Math.max(2, p.total / max * 100) : 0;
+    const tag = p.traineePct != null ? `<span class="lb-tag"> · ${escapeHtml(String(p.traineePct))}% trainee</span>` : "";
+    const rate = p.hours > 0 ? fmt(p.total / p.hours) + "/h" : "—";
+    return `<div class="lb-row">
+      <div class="lb-head"><span class="lb-name">${escapeHtml(p.display)}${tag}</span><span class="lb-earned">${fmt(p.total)}</span></div>
+      <div class="lb-track">${w ? `<div class="lb-bar" style="width:${w.toFixed(1)}%"></div>` : ""}</div>
+      <div class="lb-meta">${p.shifts} shift${p.shifts === 1 ? "" : "s"} · ${p.hours.toFixed(1)}h · ${rate}</div>
+    </div>`;
+  }).join("");
+  return `<div class="panel"><h2>Earnings by person</h2>${body}</div>`;
 }
 
 function emptyState(msg) { return `<div class="empty-state">${escapeHtml(msg)}</div>`; }
