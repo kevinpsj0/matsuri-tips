@@ -345,9 +345,11 @@ function shiftCardsHtml(rows) {
       const width = hasBar ? ((co - ci) / span * 100) : 0;
       const cls = p.role === "Trainee" ? "tl-bar trainee" : "tl-bar";
       const pct = (p.role === "Trainee" && p.traineePct != null) ? `<span class="tl-tr">${escapeHtml(String(p.traineePct))}%</span>` : "";
-      const title = (p.timeIn && p.timeOut) ? `${escapeHtml(p.timeIn)}–${escapeHtml(p.timeOut)}` : "";
+      let dur = "";
+      if (ci != null && co != null && co > ci) { const m = co - ci; dur = Math.floor(m / 60) + "h" + (m % 60 ? " " + (m % 60) + "m" : ""); }
+      const info = escapeHtml(`${p.recipient || "?"} · ${p.timeIn || "?"}–${p.timeOut || "?"}${dur ? " · " + dur : ""}`);
       const track = hasBar
-        ? `<div class="tl-track"><div class="${cls}" style="left:${left.toFixed(1)}%;width:${Math.max(width, 2).toFixed(1)}%" title="${title}"></div></div>`
+        ? `<div class="tl-track"><div class="${cls}" style="left:${left.toFixed(1)}%;width:${Math.max(width, 2).toFixed(1)}%" title="${info}" data-info="${info}"></div></div>`
         : `<div class="tl-track"></div>`;
       return `<div class="tl-row"><span class="tl-name" title="${escapeHtml(p.recipient || "")}">${escapeHtml(p.recipient || "?")}${pct}</span>${track}<span class="tl-amt">${fmt(p.amount)}</span></div>`;
     }).join("");
@@ -475,6 +477,27 @@ function wireEvents() {
     const cell = e.target.closest(".cal-cell[data-day]");
     if (cell) { calDay = cell.getAttribute("data-day"); render(); return; }
   });
+
+  // Tap a timeline bar to show its name, clock-in/out, and duration as a popup.
+  const pop = document.getElementById("tip-pop");
+  document.addEventListener("click", (e) => {
+    const bar = e.target.closest(".tl-bar");
+    if (bar && bar.dataset.info) {
+      pop.textContent = bar.dataset.info;
+      pop.classList.remove("hidden");
+      const popW = pop.offsetWidth, popH = pop.offsetHeight;
+      const r = bar.getBoundingClientRect();
+      let left = r.left + r.width / 2 - popW / 2;
+      left = Math.max(6, Math.min(left, window.innerWidth - popW - 6));
+      let top = r.top - popH - 8;
+      if (top < 6) top = r.bottom + 8;
+      pop.style.left = left + "px";
+      pop.style.top = top + "px";
+    } else {
+      pop.classList.add("hidden");
+    }
+  });
+  window.addEventListener("scroll", () => pop.classList.add("hidden"), true);
 }
 
 function buildDayPresets() {

@@ -175,6 +175,7 @@
   .lb-track { height: .6rem; background: #eef0f5; border-radius: 4px; overflow: hidden; margin: .35rem 0 .3rem; }
   .lb-bar { height: 100%; background: var(--gold); border-radius: 4px; }
   .lb-meta { font-size: .8rem; color: var(--muted); }
+  .tip-pop { position: fixed; z-index: 50; background: var(--indigo); color: #fff; padding: .4rem .65rem; border-radius: 8px; font-size: .82rem; box-shadow: 0 6px 18px rgba(0,0,0,0.28); pointer-events: none; white-space: nowrap; }
 
   .empty-state { text-align: center; color: var(--muted); padding: 2rem 1rem; }
   .loading { text-align: center; color: var(--muted); padding: 2rem; }
@@ -234,6 +235,8 @@
     <div id="view"></div>
   </div>
 </div>
+
+<div id="tip-pop" class="tip-pop hidden"></div>
 
 <script src="admin.js"></script>
 <script>
