@@ -139,10 +139,17 @@
   .shift .when { font-weight: 600; }
   .shift .by { color: var(--muted); font-size: .82rem; }
   .shift .tot { font-weight: 700; color: var(--indigo); }
-  .shift .lines { margin-top: .5rem; border-top: 1px dashed var(--line); padding-top: .5rem; }
-  .ln { display: flex; justify-content: space-between; padding: .12rem 0; font-size: .9rem; }
-  .ln .lbl { color: #374151; }
-  .ln .val { font-variant-numeric: tabular-nums; }
+  .tl-axis, .tl-row { display: grid; grid-template-columns: 4.8rem 1fr 4.6rem; align-items: center; gap: .4rem; }
+  .tl-axis { margin-top: .6rem; }
+  .tl-ticks { display: flex; justify-content: space-between; font-size: .68rem; color: var(--muted); }
+  .tl-row { padding: .18rem 0; }
+  .tl-name { font-size: .85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tl-tr { font-size: .65rem; color: var(--muted); margin-left: .2rem; }
+  .tl-track { position: relative; height: 1.15rem; background: #eef0f5; border-radius: 5px; overflow: hidden; }
+  .tl-bar { position: absolute; top: 0; bottom: 0; background: var(--indigo-soft); border-radius: 5px; }
+  .tl-bar.trainee { background: var(--gold); }
+  .tl-amt { text-align: right; font-size: .85rem; font-variant-numeric: tabular-nums; }
+  .tl-fixed { margin-top: .55rem; padding-top: .45rem; border-top: 1px dashed var(--line); font-size: .82rem; color: var(--muted); }
 
   /* People table */
   table.people { width: 100%; border-collapse: collapse; }

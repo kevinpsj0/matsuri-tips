@@ -253,6 +253,21 @@ function renderCalDayDetail(iso) {
     </div>${body}`;
 }
 
+function clockMins(t) {
+  if (!t) return null;
+  const p = String(t).split(":");
+  const h = Number(p[0]), m = Number(p[1]);
+  if (!isFinite(h) || !isFinite(m)) return null;
+  return h * 60 + m;
+}
+
+function fmtClock(mins) {
+  const h = Math.floor(mins / 60), m = mins % 60;
+  const ap = h < 12 ? "a" : "p";
+  let hh = h % 12; if (hh === 0) hh = 12;
+  return hh + (m ? ":" + String(m).padStart(2, "0") : "") + ap;
+}
+
 function shiftCardsHtml(rows) {
   const shifts = {};
   for (const r of rows) {
@@ -260,23 +275,50 @@ function shiftCardsHtml(rows) {
     if (!shifts[id]) shifts[id] = { date: r.date, time: r.time, enteredBy: r.enteredBy, totalTips: r.totalTips, recipients: [] };
     shifts[id].recipients.push(r);
   }
-  const roleOrder = { Server: 0, Trainee: 1, Kitchen: 2, Chefs: 3 };
   const list = Object.values(shifts).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
   return list.map((sh) => {
-    const recips = sh.recipients.slice().sort((a, b) => (roleOrder[a.role] || 0) - (roleOrder[b.role] || 0));
-    const lines = recips.map((r) => {
-      let label = (r.role === "Kitchen" || r.role === "Chefs") ? r.role : escapeHtml(r.recipient || "?");
-      if (r.role === "Trainee") label += ` (${r.traineePct != null ? escapeHtml(String(r.traineePct)) + "% " : ""}trainee)`;
-      const time = (r.timeIn && r.timeOut) ? ` · ${escapeHtml(r.timeIn)}–${escapeHtml(r.timeOut)}` : "";
-      return `<div class="ln"><span class="lbl">${label}${time}</span><span class="val">${fmt(r.amount)}</span></div>`;
+    const people = sh.recipients.filter((r) => r.role === "Server" || r.role === "Trainee");
+    const fixed = sh.recipients.filter((r) => r.role === "Kitchen" || r.role === "Chefs");
+    const timed = people.filter((p) => clockMins(p.timeIn) != null && clockMins(p.timeOut) != null && clockMins(p.timeOut) > clockMins(p.timeIn));
+
+    let axisHtml = "";
+    let span = 0, axisMin = 0;
+    if (timed.length) {
+      axisMin = Math.min.apply(null, timed.map((p) => clockMins(p.timeIn)));
+      const axisMax = Math.max.apply(null, timed.map((p) => clockMins(p.timeOut)));
+      span = axisMax - axisMin;
+      const ticks = [0, 1, 2, 3].map((i) => `<span>${fmtClock(Math.round(axisMin + span * i / 3))}</span>`).join("");
+      axisHtml = `<div class="tl-axis"><span class="tl-name"></span><div class="tl-ticks">${ticks}</div><span class="tl-amt"></span></div>`;
+    }
+
+    const ordered = people.slice().sort((a, b) => (clockMins(a.timeIn) || 0) - (clockMins(b.timeIn) || 0));
+    const rowsHtml = ordered.map((p) => {
+      const ci = clockMins(p.timeIn), co = clockMins(p.timeOut);
+      const hasBar = ci != null && co != null && co > ci && span > 0;
+      const left = hasBar ? ((ci - axisMin) / span * 100) : 0;
+      const width = hasBar ? ((co - ci) / span * 100) : 0;
+      const cls = p.role === "Trainee" ? "tl-bar trainee" : "tl-bar";
+      const pct = (p.role === "Trainee" && p.traineePct != null) ? `<span class="tl-tr">${escapeHtml(String(p.traineePct))}%</span>` : "";
+      const title = (p.timeIn && p.timeOut) ? `${escapeHtml(p.timeIn)}–${escapeHtml(p.timeOut)}` : "";
+      const track = hasBar
+        ? `<div class="tl-track"><div class="${cls}" style="left:${left.toFixed(1)}%;width:${Math.max(width, 2).toFixed(1)}%" title="${title}"></div></div>`
+        : `<div class="tl-track"></div>`;
+      return `<div class="tl-row"><span class="tl-name" title="${escapeHtml(p.recipient || "")}">${escapeHtml(p.recipient || "?")}${pct}</span>${track}<span class="tl-amt">${fmt(p.amount)}</span></div>`;
     }).join("");
+
+    const fixedSummary = fixed
+      .sort((a, b) => (a.role === "Kitchen" ? -1 : 1))
+      .map((f) => `${f.role} ${fmt(f.amount)}`).join("  ·  ");
+
     return `<div class="shift">
       <div class="top">
         <span class="when">${escapeHtml(sh.date)} ${escapeHtml(sh.time)}</span>
         <span class="tot">${fmt(sh.totalTips)}</span>
       </div>
       <div class="by">Entered by ${escapeHtml(sh.enteredBy || "?")}</div>
-      <div class="lines">${lines}</div>
+      ${axisHtml}
+      <div class="tl-rows">${rowsHtml}</div>
+      ${fixedSummary ? `<div class="tl-fixed">${escapeHtml(fixedSummary)}</div>` : ""}
     </div>`;
   }).join("");
 }
