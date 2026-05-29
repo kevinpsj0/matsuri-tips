@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Today's Shifts</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#14223F">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Matsuri Tips">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: #f7f7f7; color: #222; padding: 1rem; max-width: 480px; margin: 0 auto;
+  }
+  header.head { display: flex; justify-content: space-between; align-items: center; margin-bottom: .8rem; }
+  header.head h1 { font-size: 1.2rem; margin: 0; }
+  .back { color: #3b82f6; text-decoration: none; font-size: .9rem; }
+  .refresh {
+    background: #fff; border: 1px solid #ccc; border-radius: 6px;
+    padding: .4rem .8rem; font-size: .85rem; cursor: pointer; margin-bottom: .8rem;
+  }
+  .shift { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: .85rem; margin-bottom: .6rem; }
+  .shift-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+  .when { font-weight: 700; }
+  .tot { color: #14223F; }
+  .by { color: #6b7280; font-size: .82rem; margin-top: .2rem; }
+  .lines { margin-top: .55rem; border-top: 1px dashed #ddd; padding-top: .55rem; }
+  .ln { display: flex; justify-content: space-between; padding: .15rem 0; font-size: .92rem; gap: .5rem; }
+  .ln .val { font-variant-numeric: tabular-nums; }
+  .req-btn {
+    border: 1px solid #ccc; background: #fff; border-radius: 999px;
+    padding: .3rem .75rem; font-size: .78rem; cursor: pointer; color: #444;
+  }
+  .empty, .loading { text-align: center; color: #6b7280; padding: 2rem 1rem; }
+  .toast {
+    position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
+    background: #14223F; color: #fff; padding: .6rem 1rem; border-radius: 8px;
+    font-size: .85rem; z-index: 60; box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+  }
+  .toast.hidden { display: none; }
+  .modal { position: fixed; inset: 0; background: rgba(20,34,63,0.5); display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 50; }
+  .modal.hidden { display: none; }
+  .modal-card { background: #fff; border-radius: 12px; max-width: 380px; width: 100%; padding: 1rem; }
+  .modal-card h2 { font-size: 1.05rem; margin: 0 0 .3rem; }
+  .modal-card .sub { color: #6b7280; font-size: .82rem; margin-bottom: .6rem; }
+  .modal-card label { display: block; font-weight: 600; font-size: .85rem; margin: .6rem 0 .2rem; }
+  .modal-card input, .modal-card textarea {
+    width: 100%; padding: .55rem; border: 1px solid #ccc; border-radius: 6px;
+    font: inherit; font-size: .95rem; background: #fff;
+  }
+  .modal-card textarea { resize: vertical; min-height: 5rem; }
+  .err { color: #b00; font-size: .82rem; margin-top: .4rem; min-height: 1em; }
+  .modal-actions { display: flex; gap: .5rem; margin-top: .8rem; }
+  .modal-actions button { flex: 1; padding: .65rem; font-size: .95rem; border-radius: 8px; border: 0; cursor: pointer; }
+  .btn-primary { background: #3b82f6; color: #fff; font-weight: 600; }
+  .btn-secondary { background: #eee; color: #222; }
+</style>
+</head>
+<body>
+
+<header class="head">
+  <h1>Today's shifts</h1>
+  <a class="back" href="./">&larr; Back to entry</a>
+</header>
+
+<button type="button" class="refresh" id="refresh-btn">Refresh</button>
+
+<div id="content"><div class="loading">Loading...</div></div>
+
+<div class="modal hidden" id="edit-modal">
+  <div class="modal-card">
+    <h2>Request edit</h2>
+    <div class="sub" id="edit-sub"></div>
+    <label for="req-name">Your name</label>
+    <input type="text" id="req-name" autocomplete="off" maxlength="60">
+    <label for="req-reason">What's wrong?</label>
+    <textarea id="req-reason" maxlength="500" placeholder="e.g., Wrong tip amount, missed a person"></textarea>
+    <div class="err" id="req-err"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn-secondary" id="req-cancel">Cancel</button>
+      <button type="button" class="btn-primary" id="req-send">Send</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast hidden" id="toast"></div>
+
+<script>
+const ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbyvxUBapgpbZpf-ndoexuH2ZjWIwO5bIzH26F-OeWmEcQY4QqbeFXs2lvRTarhlaFtHtQ/exec";
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function fmt(n) { return "$" + (n || 0).toFixed(2); }
+
+const content = document.getElementById("content");
+const refreshBtn = document.getElementById("refresh-btn");
+const modal = document.getElementById("edit-modal");
+const editSub = document.getElementById("edit-sub");
+const reqName = document.getElementById("req-name");
+const reqReason = document.getElementById("req-reason");
+const reqErr = document.getElementById("req-err");
+const reqSend = document.getElementById("req-send");
+const toastEl = document.getElementById("toast");
+let currentSid = null;
+
+async function load() {
+  content.innerHTML = `<div class="loading">Loading...</div>`;
+  try {
+    const res = await fetch(ENDPOINT_URL, {
+      method: "POST", mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "fetchToday" }),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    if (!data || !data.ok) throw new Error((data && data.error) || "load failed");
+    render(data.rows || []);
+  } catch (e) {
+    content.innerHTML = `<div class="empty">Could not load. Check your connection and tap Refresh.</div>`;
+  }
+}
+
+const roleOrder = { Server: 0, Trainee: 1, Kitchen: 2, Chefs: 3 };
+
+function render(rows) {
+  if (!rows.length) { content.innerHTML = `<div class="empty">No shifts entered today yet.</div>`; return; }
+  const shifts = {};
+  for (const r of rows) {
+    const id = r.submissionId || (r.date + r.time);
+    if (!shifts[id]) shifts[id] = { id: id, date: r.date, time: r.time, enteredBy: r.enteredBy, totalTips: r.totalTips, recipients: [] };
+    shifts[id].recipients.push(r);
+  }
+  const list = Object.values(shifts).sort((a, b) => (b.time || "").localeCompare(a.time || ""));
+  content.innerHTML = list.map((sh) => {
+    const recips = sh.recipients.slice().sort((a, b) => (roleOrder[a.role] || 0) - (roleOrder[b.role] || 0));
+    const lines = recips.map((r) => {
+      let label = (r.role === "Kitchen" || r.role === "Chefs") ? r.role : escapeHtml(r.recipient || "?");
+      if (r.role === "Trainee" && r.traineePct != null) label += ` (${escapeHtml(String(r.traineePct))}% trainee)`;
+      const tm = (r.timeIn && r.timeOut) ? ` · ${escapeHtml(r.timeIn)}–${escapeHtml(r.timeOut)}` : "";
+      return `<div class="ln"><span>${label}${tm}</span><span class="val">${fmt(r.amount)}</span></div>`;
+    }).join("");
+    const label = `${sh.date} ${sh.time} · ${fmt(sh.totalTips)}`;
+    return `<div class="shift" data-sid="${escapeHtml(sh.id)}" data-label="${escapeHtml(label)}">
+      <div class="shift-head">
+        <span class="when">${escapeHtml(sh.time)} · <span class="tot">${fmt(sh.totalTips)}</span></span>
+        <button type="button" class="req-btn">Request edit</button>
+      </div>
+      <div class="by">Entered by ${escapeHtml(sh.enteredBy || "?")}</div>
+      <div class="lines">${lines}</div>
+    </div>`;
+  }).join("");
+}
+
+content.addEventListener("click", (e) => {
+  const btn = e.target.closest(".req-btn");
+  if (!btn) return;
+  const card = btn.closest(".shift");
+  currentSid = card.dataset.sid;
+  editSub.textContent = "Shift " + card.dataset.label + ". The owner will review.";
+  reqName.value = "";
+  reqReason.value = "";
+  reqErr.textContent = "";
+  modal.classList.remove("hidden");
+  reqName.focus();
+});
+
+document.getElementById("req-cancel").addEventListener("click", () => modal.classList.add("hidden"));
+modal.addEventListener("click", (e) => { if (e.target === modal) modal.classList.add("hidden"); });
+
+reqSend.addEventListener("click", async () => {
+  const name = reqName.value.trim();
+  const reason = reqReason.value.trim();
+  if (!name) { reqErr.textContent = "Please enter your name."; reqName.focus(); return; }
+  if (!reason) { reqErr.textContent = "Please describe what's wrong."; reqReason.focus(); return; }
+  reqErr.textContent = "";
+  reqSend.disabled = true; reqSend.textContent = "Sending...";
+  try {
+    const res = await fetch(ENDPOINT_URL, {
+      method: "POST", mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "requestEdit", submissionId: currentSid, requestedBy: name, reason: reason }),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "send failed");
+    modal.classList.add("hidden");
+    showToast("Edit request sent to the owner.");
+  } catch (err) {
+    reqErr.textContent = "Could not send. Check connection and try again.";
+  } finally {
+    reqSend.disabled = false; reqSend.textContent = "Send";
+  }
+});
+
+function showToast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.remove("hidden");
+  setTimeout(() => toastEl.classList.add("hidden"), 3500);
+}
+
+refreshBtn.addEventListener("click", load);
+load();
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
+</script>
+
+</body>
+</html>

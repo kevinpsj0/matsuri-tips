@@ -162,6 +162,83 @@ function handleFetchData(payload) {
   return jsonResponse({ ok: true, rows: rows });
 }
 
+// Read path for the staff verification page (today.html). Returns just
+// today's rows, no PIN. Same trust model as the entry form: anyone with
+// the URL can read today's shifts.
+function handleFetchToday() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheets()[0];
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return jsonResponse({ ok: true, rows: [] });
+
+  const tz = ss.getSpreadsheetTimeZone();
+  const today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+  const asDateStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "yyyy-MM-dd") : String(v || "");
+  const asTimeStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "HH:mm") : String(v || "");
+  const numOrNull = (v) => (v === "" || v === null || v === undefined) ? null : Number(v);
+
+  const values = sheet.getRange(2, 1, lastRow - 1, NUM_COLS).getValues();
+  const rows = [];
+  for (const r of values) {
+    const date = asDateStr(r[COL.DATE - 1]);
+    if (date !== today) continue;
+    rows.push({
+      date: date,
+      time: asTimeStr(r[COL.TIME - 1]),
+      enteredBy: String(r[COL.ENTERED_BY - 1] || ""),
+      recipient: String(r[COL.RECIPIENT - 1] || ""),
+      role: String(r[COL.ROLE - 1] || ""),
+      traineePct: numOrNull(r[COL.TRAINEE_PCT - 1]),
+      timeIn: asTimeStr(r[COL.TIME_IN - 1]),
+      timeOut: asTimeStr(r[COL.TIME_OUT - 1]),
+      hours: Number(r[COL.HOURS - 1]) || 0,
+      amount: Number(r[COL.AMOUNT - 1]) || 0,
+      totalTips: Number(r[COL.TOTAL_TIPS - 1]) || 0,
+      submissionId: String(r[COL.SUBMISSION_ID - 1] || ""),
+    });
+  }
+  return jsonResponse({ ok: true, rows: rows });
+}
+
+// Write path for the staff verification page: logs a request-to-edit to the
+// "Edit requests" tab (created on demand) so the owner can review and fix.
+function handleRequestEdit(payload) {
+  if (!payload || typeof payload !== "object") return jsonResponse({ ok: false, error: "Invalid request" });
+  const sid = typeof payload.submissionId === "string" ? payload.submissionId.trim() : "";
+  const by = typeof payload.requestedBy === "string" ? payload.requestedBy.trim() : "";
+  const reason = typeof payload.reason === "string" ? payload.reason.trim() : "";
+  if (!sid || sid.length > 64) return jsonResponse({ ok: false, error: "Invalid submissionId" });
+  if (!by || by.length > 60) return jsonResponse({ ok: false, error: "Please enter your name" });
+  if (!reason || reason.length > 500) return jsonResponse({ ok: false, error: "Please describe the issue (up to 500 chars)" });
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("Edit requests");
+  if (!sheet) {
+    sheet = ss.insertSheet("Edit requests", ss.getNumSheets()); // append; keep ledger at index 0
+    sheet.getRange(1, 1, 1, 6).setValues([["Requested at", "Requested by", "Shift submission ID", "Shift date", "Shift time", "Reason"]]).setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+
+  const tz = ss.getSpreadsheetTimeZone();
+  let shiftDate = "", shiftTime = "";
+  const ledger = ss.getSheets()[0];
+  const lastRow = ledger.getLastRow();
+  if (lastRow >= 2) {
+    const vals = ledger.getRange(2, 1, lastRow - 1, NUM_COLS).getValues();
+    for (const r of vals) {
+      if (r[COL.SUBMISSION_ID - 1] === sid) {
+        const d = r[COL.DATE - 1], t = r[COL.TIME - 1];
+        shiftDate = (d instanceof Date) ? Utilities.formatDate(d, tz, "yyyy-MM-dd") : String(d || "");
+        shiftTime = (t instanceof Date) ? Utilities.formatDate(t, tz, "HH:mm") : String(t || "");
+        break;
+      }
+    }
+  }
+  const now = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm");
+  sheet.appendRow([now, by, sid, shiftDate, shiftTime, reason]);
+  return jsonResponse({ ok: true });
+}
+
 function doPost(e) {
   let payload;
   try {
@@ -175,6 +252,12 @@ function doPost(e) {
   }
   if (payload && payload.action === "fetchStaff") {
     return handleFetchStaff();
+  }
+  if (payload && payload.action === "fetchToday") {
+    return handleFetchToday();
+  }
+  if (payload && payload.action === "requestEdit") {
+    return handleRequestEdit(payload);
   }
 
   const validationError = validatePayload(payload);

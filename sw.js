@@ -1,8 +1,9 @@
-const CACHE = "matsuri-tips-v4";
+const CACHE = "matsuri-tips-v5";
 const ASSETS = [
   "./",
   "./index.html",
   "./calc.js",
+  "./today.html",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
@@ -48,7 +49,7 @@ self.addEventListener("fetch", (e) => {
         })
         .catch(() =>
           caches.match(req)
-            .then((c) => c || (req.mode === "navigate" ? caches.match(url.pathname.includes("admin") ? "./admin.html" : "./index.html") : undefined))
+            .then((c) => c || (req.mode === "navigate" ? caches.match(url.pathname.includes("admin") ? "./admin.html" : url.pathname.includes("today") ? "./today.html" : "./index.html") : undefined))
             .then((c) => c || new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } }))
         )
     );

@@ -24,6 +24,9 @@
     margin: 0 auto;
   }
   h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+  .page-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-bottom: 1rem; }
+  .page-head h1 { margin: 0; }
+  .view-today { color: #3b82f6; text-decoration: none; font-size: .88rem; white-space: nowrap; }
   label { display: block; font-weight: 600; margin: 1rem 0 .25rem; }
   input[type=text], input[type=number], input[type=time] {
     width: 100%;
@@ -94,7 +97,10 @@
 </head>
 <body>
 
-<h1>Shift Tip Entry</h1>
+<header class="page-head">
+  <h1>Shift Tip Entry</h1>
+  <a class="view-today" href="today.html">View today's shifts &rarr;</a>
+</header>
 
 <div id="banner" class="banner hidden"></div>
 
