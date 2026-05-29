@@ -41,12 +41,6 @@ function currentRange() {
   const today = todayISO();
   if (period === "today") return { start: today, end: today };
   if (period === "yesterday") { const y = addDays(today, -1); return { start: y, end: y }; }
-  if (period === "mon" || period === "tue" || period === "wed") {
-    const target = { mon: 1, tue: 2, wed: 3 }[period];
-    const back = (isoWeekday(today) - target + 7) % 7; // most recent such weekday, today included
-    const d = addDays(today, -back);
-    return { start: d, end: d };
-  }
   if (period === "week") { const start = addDays(today, -isoWeekday(today)); return { start, end: addDays(start, 6) }; }
   if (period === "month") { const { y, m } = isoParts(today); return { start: `${y}-${String(m).padStart(2, "0")}-01`, end: `${y}-${String(m).padStart(2, "0")}-${String(lastDayOfMonth(y, m)).padStart(2, "0")}` }; }
   // custom
@@ -427,6 +421,13 @@ function wireEvents() {
   });
   document.getElementById("custom-start").addEventListener("change", () => { if (period === "custom") render(); });
   document.getElementById("custom-end").addEventListener("change", () => { if (period === "custom") render(); });
+  document.getElementById("preset-last7").addEventListener("click", () => {
+    const today = todayISO();
+    document.getElementById("custom-start").value = addDays(today, -6);
+    document.getElementById("custom-end").value = today;
+    period = "custom";
+    render();
+  });
 
   document.getElementById("tabs").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-tab]");
