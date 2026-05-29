@@ -127,18 +127,21 @@ function signOut() {
 
 // ---- rendering ----
 function render() {
-  // period UI is irrelevant on the calendar tab
+  // Calendar and Tips manage their own range, so the period selector is hidden for them.
   const onCal = activeTab === "calendar";
-  document.getElementById("periods").classList.toggle("hidden", onCal);
-  document.getElementById("custom-range").classList.toggle("show", !onCal && period === "custom");
-  document.getElementById("custom-range").classList.toggle("hidden", onCal);
-  document.getElementById("range-label").classList.toggle("hidden", onCal);
+  const onTips = activeTab === "tips";
+  const hidePeriod = onCal || onTips;
+  document.getElementById("periods").classList.toggle("hidden", hidePeriod);
+  document.getElementById("custom-range").classList.toggle("show", !hidePeriod && period === "custom");
+  document.getElementById("custom-range").classList.toggle("hidden", hidePeriod);
+  document.getElementById("range-label").classList.toggle("hidden", hidePeriod);
 
   document.querySelectorAll("#periods button").forEach((b) => b.classList.toggle("active", b.dataset.period === period));
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === activeTab));
 
   const view = document.getElementById("view");
   if (onCal) { view.innerHTML = calDay ? renderCalDayDetail(calDay) : renderCalendar(); return; }
+  if (onTips) { view.innerHTML = renderTips(allRows); return; }
 
   const { start, end } = currentRange();
   document.querySelectorAll("#day-presets .day-preset").forEach((b) => b.classList.toggle("active", start === end && b.dataset.day === start));
@@ -148,7 +151,6 @@ function render() {
   document.getElementById("range-label").textContent = `${label} · ${shiftCount} shift${shiftCount === 1 ? "" : "s"}`;
 
   if (activeTab === "summary") view.innerHTML = renderSummary(rows, start, end);
-  else if (activeTab === "tips") view.innerHTML = renderTips(rows);
   else if (activeTab === "shifts") view.innerHTML = renderShifts(rows);
   else if (activeTab === "people") view.innerHTML = renderPeople(rows);
 }
