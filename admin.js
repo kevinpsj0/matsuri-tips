@@ -127,21 +127,18 @@ function signOut() {
 
 // ---- rendering ----
 function render() {
-  // Calendar and Tips manage their own range, so the period selector is hidden for them.
+  // Calendar manages its own range, so the period selector is hidden for it.
   const onCal = activeTab === "calendar";
-  const onTips = activeTab === "tips";
-  const hidePeriod = onCal || onTips;
-  document.getElementById("periods").classList.toggle("hidden", hidePeriod);
-  document.getElementById("custom-range").classList.toggle("show", !hidePeriod && period === "custom");
-  document.getElementById("custom-range").classList.toggle("hidden", hidePeriod);
-  document.getElementById("range-label").classList.toggle("hidden", hidePeriod);
+  document.getElementById("periods").classList.toggle("hidden", onCal);
+  document.getElementById("custom-range").classList.toggle("show", !onCal && period === "custom");
+  document.getElementById("custom-range").classList.toggle("hidden", onCal);
+  document.getElementById("range-label").classList.toggle("hidden", onCal);
 
   document.querySelectorAll("#periods button").forEach((b) => b.classList.toggle("active", b.dataset.period === period));
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === activeTab));
 
   const view = document.getElementById("view");
   if (onCal) { view.innerHTML = calDay ? renderCalDayDetail(calDay) : renderCalendar(); return; }
-  if (onTips) { view.innerHTML = renderTips(allRows); return; }
 
   const { start, end } = currentRange();
   document.querySelectorAll("#day-presets .day-preset").forEach((b) => b.classList.toggle("active", start === end && b.dataset.day === start));
@@ -196,12 +193,13 @@ function dayTimelineHtml(rows) {
   const shifts = {};
   for (const r of rows) {
     const id = r.submissionId || (r.date + r.time);
-    if (!shifts[id]) shifts[id] = { totalTips: r.totalTips, ins: [], outs: [] };
+    if (!shifts[id]) shifts[id] = { id: id, totalTips: r.totalTips, ins: [], outs: [] };
     const ci = clockMins(r.timeIn), co = clockMins(r.timeOut);
     if (ci != null) shifts[id].ins.push(ci);
     if (co != null) shifts[id].outs.push(co);
   }
   const list = Object.values(shifts).map((s) => ({
+    id: s.id,
     totalTips: s.totalTips,
     start: s.ins.length ? Math.min.apply(null, s.ins) : null,
     end: s.outs.length ? Math.max.apply(null, s.outs) : null,
@@ -223,9 +221,16 @@ function dayTimelineHtml(rows) {
     const rawLeft = hasBar ? (s.start - axisMin) / span * 100 : 0;
     const left = Math.min(rawLeft, 100 - w); // keep the bar within the track
     const range = (s.start != null && s.end != null) ? `${fmtClock(s.start)}–${fmtClock(s.end)}` : "";
-    return `<div class="dl-row"><div class="tl-track"><div class="dl-bar" style="left:${left.toFixed(1)}%;width:${w.toFixed(1)}%" title="${range}"><span class="dl-amt">${fmt(s.totalTips)}</span></div></div></div>`;
+    return `<div class="dl-row"><div class="tl-track"><div class="dl-bar" data-sid="${escapeHtml(s.id)}" style="left:${left.toFixed(1)}%;width:${w.toFixed(1)}%" title="${range}"><span class="dl-amt">${fmt(s.totalTips)}</span></div></div></div>`;
   }).join("");
   return `<div class="dl-axis"><div class="tl-ticks">${ticks}</div></div><div class="dl-rows">${bars}</div>`;
+}
+
+function openShiftModal(sid) {
+  const shiftRows = allRows.filter((r) => (r.submissionId || (r.date + r.time)) === sid);
+  if (!shiftRows.length) return;
+  document.getElementById("modal-body").innerHTML = shiftCardsHtml(shiftRows);
+  document.getElementById("shift-modal").classList.remove("hidden");
 }
 
 function buildBarChart(series) {
@@ -376,29 +381,6 @@ function renderShifts(rows) {
   return `<div>${shiftCardsHtml(rows)}</div>`;
 }
 
-function renderTips(rows) {
-  if (!rows.length) return emptyState("No shifts in this period.");
-  const byDate = {};
-  for (const r of rows) byDate[r.date] = (byDate[r.date] || 0) + r.amount;
-  const sum = [0, 0, 0, 0, 0, 0, 0], cnt = [0, 0, 0, 0, 0, 0, 0];
-  for (const date in byDate) {
-    const wd = isoWeekday(date);
-    sum[wd] += byDate[date];
-    cnt[wd] += 1;
-  }
-  const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const order = [1, 2, 3, 4, 5, 6, 0]; // Mon..Sun
-  const items = order.map((wd) => ({ label: names[wd], avg: cnt[wd] ? sum[wd] / cnt[wd] : 0, days: cnt[wd] }));
-  const max = Math.max(1, ...items.map((a) => a.avg));
-  const bars = items.map((a) => {
-    const w = a.avg > 0 ? Math.max(2, a.avg / max * 100) : 0;
-    const bar = w ? `<div class="wk-bar" style="width:${w.toFixed(1)}%"></div>` : "";
-    const title = a.days ? `averaged over ${a.days} day${a.days === 1 ? "" : "s"}` : "no shifts";
-    return `<div class="wk-row" title="${title}"><span class="wk-label">${a.label}</span><div class="wk-track">${bar}</div><span class="wk-amt">${fmt(a.avg)}</span></div>`;
-  }).join("");
-  return `<div class="panel"><h2>Average tips by weekday</h2><div class="wk-rows">${bars}</div></div>`;
-}
-
 function renderPeople(rows) {
   const people = rows.filter((r) => r.role === "Server" || r.role === "Trainee");
   if (!people.length) return emptyState("No staff in this period.");
@@ -476,6 +458,13 @@ function wireEvents() {
     if (e.target.closest("[data-cal-back]")) { calDay = null; render(); return; }
     const cell = e.target.closest(".cal-cell[data-day]");
     if (cell) { calDay = cell.getAttribute("data-day"); render(); return; }
+    const dlbar = e.target.closest(".dl-bar");
+    if (dlbar && dlbar.dataset.sid) { openShiftModal(dlbar.dataset.sid); return; }
+  });
+
+  const modal = document.getElementById("shift-modal");
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal || e.target.closest("#modal-close")) modal.classList.add("hidden");
   });
 
   // Tap a timeline bar to show its name, clock-in/out, and duration as a popup.
