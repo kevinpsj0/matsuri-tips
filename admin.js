@@ -140,8 +140,9 @@ function render() {
 
   const { start, end } = currentRange();
   const rows = rowsInRange(start, end);
+  const shiftCount = new Set(rows.map((r) => r.submissionId)).size;
   const label = start === end ? start : `${start} to ${end}`;
-  document.getElementById("range-label").textContent = `${label} · ${rows.length} shift${rows.length === 1 ? "" : "s"}`;
+  document.getElementById("range-label").textContent = `${label} · ${shiftCount} shift${shiftCount === 1 ? "" : "s"}`;
 
   if (activeTab === "summary") view.innerHTML = renderSummary(rows, start, end);
   else if (activeTab === "shifts") view.innerHTML = renderShifts(rows);
@@ -152,12 +153,14 @@ function renderSummary(rows, start, end) {
   if (!rows.length) return emptyState("No shifts in this period.");
   let total = 0, kitchen = 0, chefs = 0, servers = 0, trainees = 0;
   const staff = new Set();
+  const shifts = new Set();
   for (const r of rows) {
-    total += r.totalTips; kitchen += r.kitchen; chefs += r.chefs;
-    servers += r.perServer * r.numServers;
-    trainees += r.traineeAmt || 0;
-    splitNames(r.serverNames).forEach((n) => staff.add(n.toLowerCase()));
-    if (r.traineeName) staff.add(r.traineeName.toLowerCase());
+    total += r.amount;
+    if (r.role === "Kitchen") kitchen += r.amount;
+    else if (r.role === "Chefs") chefs += r.amount;
+    else if (r.role === "Trainee") { trainees += r.amount; staff.add((r.recipient || "").trim().toLowerCase()); }
+    else { servers += r.amount; staff.add((r.recipient || "").trim().toLowerCase()); }
+    if (r.submissionId) shifts.add(r.submissionId);
   }
   const cards = `
     <div class="cards">
@@ -166,13 +169,13 @@ function renderSummary(rows, start, end) {
       <div class="card"><div class="k">Chefs</div><div class="v">${fmt(chefs)}</div></div>
       <div class="card"><div class="k">Servers</div><div class="v">${fmt(servers)}</div></div>
       <div class="card"><div class="k">Trainees</div><div class="v">${fmt(trainees)}</div></div>
-      <div class="card"><div class="k">Shifts</div><div class="v">${rows.length}</div></div>
+      <div class="card"><div class="k">Shifts</div><div class="v">${shifts.size}</div></div>
       <div class="card"><div class="k">Distinct staff</div><div class="v">${staff.size}</div></div>
     </div>`;
 
   const days = enumerateDays(start, end);
   const byDay = {};
-  for (const r of rows) byDay[r.date] = (byDay[r.date] || 0) + r.totalTips;
+  for (const r of rows) byDay[r.date] = (byDay[r.date] || 0) + r.amount;
   const series = days.map((d) => ({ label: String(isoParts(d).d), value: byDay[d] || 0 }));
   const chart = `<div class="panel"><h2>Daily total tips</h2>${buildBarChart(series)}</div>`;
   return cards + chart;
@@ -209,7 +212,7 @@ function renderCalendar() {
   let maxAmt = 0;
   for (const r of allRows) {
     const p = isoParts(r.date || "");
-    if (p.y === y && p.m === m) { byDay[p.d] = (byDay[p.d] || 0) + r.totalTips; if (byDay[p.d] > maxAmt) maxAmt = byDay[p.d]; }
+    if (p.y === y && p.m === m) { byDay[p.d] = (byDay[p.d] || 0) + r.amount; if (byDay[p.d] > maxAmt) maxAmt = byDay[p.d]; }
   }
   const firstDow = new Date(y, m - 1, 1).getDay();
   const days = lastDayOfMonth(y, m);
@@ -246,66 +249,65 @@ function wireCalendar() {
 
 function renderShifts(rows) {
   if (!rows.length) return emptyState("No shifts in this period.");
-  const sorted = rows.slice().sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
-  const items = sorted.map((r) => {
-    const lines = [
-      `<div class="ln"><span class="lbl">Kitchen</span><span class="val">${fmt(r.kitchen)}</span></div>`,
-      `<div class="ln"><span class="lbl">Chefs</span><span class="val">${fmt(r.chefs)}</span></div>`,
-    ];
-    splitNames(r.serverNames).forEach((n) => {
-      lines.push(`<div class="ln"><span class="lbl">${escapeHtml(n)}</span><span class="val">${fmt(r.perServer)}</span></div>`);
-    });
-    if (r.traineeName) {
-      const pct = r.traineePct != null ? ` (${r.traineePct}%)` : "";
-      lines.push(`<div class="ln"><span class="lbl">${escapeHtml(r.traineeName)}${pct}</span><span class="val">${fmt(r.traineeAmt || 0)}</span></div>`);
-    }
+  const shifts = {};
+  for (const r of rows) {
+    const id = r.submissionId || (r.date + r.time);
+    if (!shifts[id]) shifts[id] = { date: r.date, time: r.time, enteredBy: r.enteredBy, totalTips: r.totalTips, recipients: [] };
+    shifts[id].recipients.push(r);
+  }
+  const roleOrder = { Server: 0, Trainee: 1, Kitchen: 2, Chefs: 3 };
+  const list = Object.values(shifts).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+  const items = list.map((sh) => {
+    const recips = sh.recipients.slice().sort((a, b) => (roleOrder[a.role] || 0) - (roleOrder[b.role] || 0));
+    const lines = recips.map((r) => {
+      let label = (r.role === "Kitchen" || r.role === "Chefs") ? r.role : escapeHtml(r.recipient || "?");
+      if (r.role === "Trainee") label += ` (${r.traineePct != null ? escapeHtml(String(r.traineePct)) + "% " : ""}trainee)`;
+      const time = (r.timeIn && r.timeOut) ? ` · ${escapeHtml(r.timeIn)}–${escapeHtml(r.timeOut)}` : "";
+      return `<div class="ln"><span class="lbl">${label}${time}</span><span class="val">${fmt(r.amount)}</span></div>`;
+    }).join("");
     return `<div class="shift">
       <div class="top">
-        <span class="when">${escapeHtml(r.date)} ${escapeHtml(r.time)}</span>
-        <span class="tot">${fmt(r.totalTips)}</span>
+        <span class="when">${escapeHtml(sh.date)} ${escapeHtml(sh.time)}</span>
+        <span class="tot">${fmt(sh.totalTips)}</span>
       </div>
-      <div class="by">Entered by ${escapeHtml(r.enteredBy || "?")}</div>
-      <div class="lines">${lines.join("")}</div>
+      <div class="by">Entered by ${escapeHtml(sh.enteredBy || "?")}</div>
+      <div class="lines">${lines}</div>
     </div>`;
   }).join("");
   return `<div>${items}</div>`;
 }
 
 function renderPeople(rows) {
-  if (!rows.length) return emptyState("No shifts in this period.");
-  const agg = {}; // key -> { total, shifts, names: {display: count} }
-  function credit(name, amount) {
-    const key = name.trim().toLowerCase();
-    if (!key) return;
-    if (!agg[key]) agg[key] = { total: 0, shifts: 0, names: {} };
-    agg[key].total += amount;
-    agg[key].shifts += 1;
-    agg[key].names[name.trim()] = (agg[key].names[name.trim()] || 0) + 1;
-  }
-  for (const r of rows) {
-    splitNames(r.serverNames).forEach((n) => credit(n, r.perServer));
-    if (r.traineeName) credit(r.traineeName, r.traineeAmt || 0);
+  const people = rows.filter((r) => r.role === "Server" || r.role === "Trainee");
+  if (!people.length) return emptyState("No staff in this period.");
+  const agg = {}; // key -> { total, hours, shifts:Set, names: {display: count} }
+  for (const r of people) {
+    const name = (r.recipient || "").trim();
+    const key = name.toLowerCase();
+    if (!key) continue;
+    if (!agg[key]) agg[key] = { total: 0, hours: 0, shifts: new Set(), names: {} };
+    agg[key].total += r.amount;
+    agg[key].hours += r.hours || 0;
+    if (r.submissionId) agg[key].shifts.add(r.submissionId);
+    agg[key].names[name] = (agg[key].names[name] || 0) + 1;
   }
   const list = Object.values(agg).map((a) => {
     const display = Object.keys(a.names).sort((x, y) => a.names[y] - a.names[x])[0];
-    return { display, total: a.total, shifts: a.shifts };
+    return { display, total: a.total, hours: a.hours, shifts: a.shifts.size };
   }).sort((a, b) => b.total - a.total);
 
   const body = list.map((p) => `<tr>
       <td>${escapeHtml(p.display)}</td>
       <td class="num">${p.shifts}</td>
+      <td class="num">${p.hours.toFixed(1)}</td>
       <td class="num">${fmt(p.total)}</td>
     </tr>`).join("");
   return `<div class="panel"><h2>Earnings by person</h2>
     <table class="people">
-      <thead><tr><th>Name</th><th class="num">Shifts</th><th class="num">Earned</th></tr></thead>
+      <thead><tr><th>Name</th><th class="num">Shifts</th><th class="num">Hours</th><th class="num">Earned</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
   </div>`;
-}
-
-function splitNames(s) {
-  return String(s || "").split(",").map((x) => x.trim()).filter(Boolean);
 }
 
 function emptyState(msg) { return `<div class="empty-state">${escapeHtml(msg)}</div>`; }

@@ -6,14 +6,16 @@ One-time setup. Total time: about 15 minutes.
 
 1. Go to sheets.new
 2. Rename it (e.g., "Tip Ledger")
-3. In row 1, paste this header (one paste fills A1:M1):
+3. You don't need to set up the header by hand. After you add the Apps Script
+   (next step), running the `setupSheet` function writes the header, freezes it,
+   and formats the money columns. The ledger stores **one row per recipient per
+   shift** (one row for each server/trainee, plus a Kitchen and a Chefs row):
 
    ```
-   Date	Time	Entered by	Total tips	# of full servers	Server names	Trainee name	Trainee %	Kitchen $	Chefs $	Per-server $	Trainee $	Submission ID
+   Date	Time	Entered by	Recipient	Role	Trainee %	Time in	Time out	Hours	Amount $	Total tips	Submission ID
    ```
 
 4. File → Settings → set the time zone to your restaurant's local timezone. Save.
-5. Optional: freeze row 1 (View → Freeze → 1 row) and format columns D, I, J, K, L as currency.
 
 ## 2. Add the Apps Script
 
@@ -102,6 +104,6 @@ with its own icon, separate from the server entry app.
 |---|---|
 | "Could not save. Check your connection..." | The `ENDPOINT_URL` is wrong, or the Apps Script deployment is not set to "Anyone". |
 | Form submits but no row appears in Sheet | Deployment is bound to the wrong Sheet, or "Execute as: me" was not selected during deployment. |
-| Numbers in the Sheet show as `0.10` not `$0.10` | Format columns I/J/K/L as currency (Format → Number → Currency). |
+| Numbers in the Sheet show as `0.10` not `$0.10` | Re-run `setupSheet`, or format columns J and K as currency (Format → Number → Currency). |
 | Time on rows is wrong | Sheet timezone is not set. File → Settings → Time zone. |
 | Two rows for one shift | Should not happen with submissionId dedup; if it does, check that column M (Submission ID) is populated on both rows. |

@@ -25,7 +25,7 @@
   }
   h1 { font-size: 1.25rem; margin: 0 0 1rem; }
   label { display: block; font-weight: 600; margin: 1rem 0 .25rem; }
-  input[type=text], input[type=number] {
+  input[type=text], input[type=number], input[type=time] {
     width: 100%;
     padding: .75rem;
     font-size: 1rem;
@@ -36,15 +36,9 @@
   input:focus { outline: 2px solid #3b82f6; outline-offset: -1px; }
   input.error { border-color: #b00; }
   .field-error { color: #b00; font-size: .85rem; margin-top: .25rem; min-height: 1em; }
-  .stepper { display: flex; align-items: center; gap: .5rem; }
-  .stepper button {
-    width: 2.5rem; height: 2.5rem; font-size: 1.25rem; border: 1px solid #ccc;
-    background: #fff; border-radius: 6px; cursor: pointer;
-  }
-  .stepper input { text-align: center; width: 4rem; }
   .toggle-row { display: flex; align-items: center; gap: .75rem; margin: 1rem 0 .25rem; }
-  .toggle-row label { margin: 0; }
-  .switch { position: relative; width: 3rem; height: 1.75rem; }
+  .toggle-row span { font-weight: 600; }
+  .switch { position: relative; width: 3rem; height: 1.75rem; flex: none; }
   .switch input { opacity: 0; width: 0; height: 0; }
   .slider { position: absolute; inset: 0; background: #ccc; border-radius: 1rem; transition: .2s; cursor: pointer; }
   .slider::before {
@@ -53,17 +47,29 @@
   }
   .switch input:checked + .slider { background: #3b82f6; }
   .switch input:checked + .slider::before { transform: translateX(1.25rem); }
-  .pct-buttons { display: flex; gap: .5rem; }
+  .pct-buttons { display: flex; gap: .5rem; margin-top: .5rem; }
   .pct-buttons button {
     flex: 1; padding: .75rem; font-size: 1rem; border: 1px solid #ccc; border-radius: 6px;
     background: #fff; cursor: pointer;
   }
   .pct-buttons button.selected { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+  .person { border: 1px solid #ddd; border-radius: 10px; padding: .85rem; margin: .6rem 0; background: #fff; }
+  .person-head { display: flex; justify-content: space-between; align-items: center; }
+  .person-title { font-weight: 700; }
+  .remove-person { border: 0; background: transparent; color: #b00; font-size: .85rem; cursor: pointer; padding: .25rem; }
+  .person label { margin: .6rem 0 .25rem; font-size: .9rem; }
+  .times { display: flex; gap: .5rem; }
+  .time-field { flex: 1; min-width: 0; }
+  .add-btn {
+    width: 100%; padding: .7rem; font-size: 1rem; border: 1px dashed #999;
+    background: #fff; border-radius: 8px; cursor: pointer; color: #333; margin-top: .25rem;
+  }
+  .add-btn:disabled { opacity: .5; cursor: default; }
   .preview {
     background: #fff; border: 1px solid #ddd; border-radius: 8px;
     padding: 1rem; margin: 1.5rem 0;
   }
-  .preview-row { display: flex; justify-content: space-between; padding: .25rem 0; }
+  .preview-row { display: flex; justify-content: space-between; padding: .25rem 0; gap: .5rem; }
   .preview-row.total { border-top: 1px solid #ddd; margin-top: .5rem; padding-top: .5rem; font-weight: 600; }
   .submit-btn {
     width: 100%; padding: 1rem; font-size: 1.1rem; font-weight: 600;
@@ -104,42 +110,12 @@
   <input type="number" id="total-tips" inputmode="decimal" step="0.01" min="1" max="100000">
   <div class="field-error" id="err-total-tips"></div>
 
-  <label>Number of full servers</label>
-  <div class="stepper">
-    <button type="button" id="srv-minus" aria-label="Decrease">&minus;</button>
-    <input type="number" id="num-servers" value="1" min="1" max="6" readonly>
-    <button type="button" id="srv-plus" aria-label="Increase">+</button>
-  </div>
-  <div class="field-error"></div>
-
-  <div id="server-names-container"></div>
-
-  <div class="toggle-row">
-    <label class="switch">
-      <input type="checkbox" id="trainee-toggle">
-      <span class="slider"></span>
-    </label>
-    <label for="trainee-toggle">Trainee on shift</label>
-  </div>
-
-  <div id="trainee-fields" class="hidden">
-    <label for="trainee-name">Trainee name</label>
-    <div class="combo">
-      <input type="text" id="trainee-name" autocomplete="off" maxlength="40">
-      <div class="combo-list hidden"></div>
-    </div>
-    <div class="field-error" id="err-trainee-name"></div>
-
-    <label>Trainee level</label>
-    <div class="pct-buttons" id="pct-buttons">
-      <button type="button" data-pct="25">25%</button>
-      <button type="button" data-pct="50" class="selected">50%</button>
-      <button type="button" data-pct="75">75%</button>
-    </div>
-  </div>
+  <label>People on shift</label>
+  <div id="people-container"></div>
+  <button type="button" class="add-btn" id="add-person">+ Add person</button>
 
   <div class="preview" id="preview" aria-live="polite">
-    <div class="preview-row"><span>Enter tip amount to see split</span></div>
+    <div class="preview-row"><span>Enter tips and times to see the split</span></div>
   </div>
 
   <button type="submit" class="submit-btn" id="submit-btn">Submit shift</button>
@@ -149,128 +125,14 @@
 <script>
 const ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbyvxUBapgpbZpf-ndoexuH2ZjWIwO5bIzH26F-OeWmEcQY4QqbeFXs2lvRTarhlaFtHtQ/exec";
 
-let numServers = 1;
-let traineeOn = false;
-let traineePct = 50;
-
 const totalTipsEl = document.getElementById("total-tips");
 const enteredByEl = document.getElementById("entered-by");
-const srvCountEl = document.getElementById("num-servers");
-const srvPlusEl = document.getElementById("srv-plus");
-const srvMinusEl = document.getElementById("srv-minus");
-const namesContainer = document.getElementById("server-names-container");
-const traineeToggle = document.getElementById("trainee-toggle");
-const traineeFields = document.getElementById("trainee-fields");
-const traineeNameEl = document.getElementById("trainee-name");
-const pctButtonsEl = document.getElementById("pct-buttons");
+const peopleContainer = document.getElementById("people-container");
+const addPersonBtn = document.getElementById("add-person");
 const previewEl = document.getElementById("preview");
 
-function renderServerNameInputs() {
-  const existing = Array.from(namesContainer.querySelectorAll("input")).map(i => i.value);
-  namesContainer.innerHTML = "";
-  for (let i = 0; i < numServers; i++) {
-    const label = document.createElement("label");
-    label.textContent = `Server ${i + 1} name`;
-    namesContainer.appendChild(label);
-
-    const combo = document.createElement("div");
-    combo.className = "combo";
-
-    const input = document.createElement("input");
-    input.type = "text";
-    input.autocomplete = "off";
-    input.maxLength = 40;
-    input.value = existing[i] || "";
-    input.dataset.serverIndex = String(i);
-    input.addEventListener("input", updatePreview);
-    combo.appendChild(input);
-
-    const list = document.createElement("div");
-    list.className = "combo-list hidden";
-    combo.appendChild(list);
-
-    namesContainer.appendChild(combo);
-    attachCombo(input);
-
-    const err = document.createElement("div");
-    err.className = "field-error";
-    err.dataset.errFor = `server-${i}`;
-    namesContainer.appendChild(err);
-  }
-}
-
-function updateServerCount(delta) {
-  const next = numServers + delta;
-  if (next < 1 || next > 6) return;
-  numServers = next;
-  srvCountEl.value = String(numServers);
-  renderServerNameInputs();
-  updatePreview();
-}
-
-srvPlusEl.addEventListener("click", () => updateServerCount(1));
-srvMinusEl.addEventListener("click", () => updateServerCount(-1));
-
-traineeToggle.addEventListener("change", () => {
-  traineeOn = traineeToggle.checked;
-  traineeFields.classList.toggle("hidden", !traineeOn);
-  if (traineeOn) {
-    traineePct = 50;
-    pctButtonsEl.querySelectorAll("button").forEach(b => {
-      b.classList.toggle("selected", b.dataset.pct === "50");
-    });
-  }
-  updatePreview();
-});
-
-pctButtonsEl.addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-pct]");
-  if (!btn) return;
-  traineePct = parseInt(btn.dataset.pct, 10);
-  pctButtonsEl.querySelectorAll("button").forEach(b => {
-    b.classList.toggle("selected", b === btn);
-  });
-  updatePreview();
-});
-
-traineeNameEl.addEventListener("input", updatePreview);
-totalTipsEl.addEventListener("input", updatePreview);
-
-function fmt(n) {
-  return "$" + n.toFixed(2);
-}
-
-function readFormSnapshot() {
-  const totalTips = parseFloat(totalTipsEl.value);
-  const serverNames = Array.from(namesContainer.querySelectorAll("input")).map(i => i.value.trim());
-  const trainee = traineeOn
-    ? { name: traineeNameEl.value.trim(), pct: traineePct }
-    : null;
-  return { totalTips, serverNames, trainee };
-}
-
-function updatePreview() {
-  const snap = readFormSnapshot();
-  if (!isFinite(snap.totalTips) || snap.totalTips < 1) {
-    previewEl.innerHTML = `<div class="preview-row"><span>Enter tip amount to see split</span></div>`;
-    return;
-  }
-  const splits = splitShift(snap);
-  const rows = [];
-  rows.push(`<div class="preview-row"><span>Kitchen</span><span>${fmt(splits.kitchen)}</span></div>`);
-  rows.push(`<div class="preview-row"><span>Chefs</span><span>${fmt(splits.chefs)}</span></div>`);
-  for (let i = 0; i < snap.serverNames.length; i++) {
-    const label = snap.serverNames[i] || `Server ${i + 1}`;
-    rows.push(`<div class="preview-row"><span>${escapeHtml(label)}</span><span>${fmt(splits.perServer)}</span></div>`);
-  }
-  if (snap.trainee) {
-    const label = snap.trainee.name || "Trainee";
-    rows.push(`<div class="preview-row"><span>${escapeHtml(label)} (${snap.trainee.pct}%)</span><span>${fmt(splits.trainee)}</span></div>`);
-  }
-  const sum = splits.kitchen + splits.chefs + splits.perServer * snap.serverNames.length + (splits.trainee || 0);
-  rows.push(`<div class="preview-row total"><span>Total</span><span>${fmt(sum)}</span></div>`);
-  previewEl.innerHTML = rows.join("");
-}
+function fmt(n) { return "$" + (n || 0).toFixed(2); }
+function fmtHours(h) { const mins = Math.round((h || 0) * 60); return Math.floor(mins / 60) + "h " + (mins % 60) + "m"; }
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => (
@@ -278,6 +140,7 @@ function escapeHtml(s) {
   ));
 }
 
+// ---- staff dropdown (custom combobox) ----
 const STAFF_KEY = "matsuri_staff";
 let staffNames = [];
 
@@ -334,12 +197,130 @@ function loadStaff() {
     .catch(() => {});
 }
 
-renderServerNameInputs();
-updatePreview();
+// ---- people rows ----
+function createPersonRow() {
+  const row = document.createElement("div");
+  row.className = "person";
+  row.innerHTML =
+    '<div class="person-head">' +
+      '<span class="person-title">Person</span>' +
+      '<button type="button" class="remove-person hidden">Remove</button>' +
+    '</div>' +
+    '<div class="combo">' +
+      '<input type="text" class="p-name" autocomplete="off" maxlength="40" placeholder="Name">' +
+      '<div class="combo-list hidden"></div>' +
+    '</div>' +
+    '<div class="times">' +
+      '<div class="time-field"><label>Time in</label><input type="time" class="p-in"></div>' +
+      '<div class="time-field"><label>Time out</label><input type="time" class="p-out"></div>' +
+    '</div>' +
+    '<div class="toggle-row">' +
+      '<label class="switch"><input type="checkbox" class="p-trainee"><span class="slider"></span></label>' +
+      '<span>Trainee</span>' +
+    '</div>' +
+    '<div class="pct-buttons hidden">' +
+      '<button type="button" data-pct="25">25%</button>' +
+      '<button type="button" data-pct="50" class="selected">50%</button>' +
+      '<button type="button" data-pct="75">75%</button>' +
+    '</div>' +
+    '<div class="field-error"></div>';
+
+  const nameInput = row.querySelector(".p-name");
+  nameInput.addEventListener("input", updatePreview);
+  attachCombo(nameInput);
+  row.querySelector(".p-in").addEventListener("input", updatePreview);
+  row.querySelector(".p-out").addEventListener("input", updatePreview);
+
+  const traineeToggle = row.querySelector(".p-trainee");
+  const pctButtons = row.querySelector(".pct-buttons");
+  traineeToggle.addEventListener("change", () => {
+    pctButtons.classList.toggle("hidden", !traineeToggle.checked);
+    if (traineeToggle.checked) {
+      pctButtons.querySelectorAll("button").forEach(b => b.classList.toggle("selected", b.dataset.pct === "50"));
+    }
+    updatePreview();
+  });
+  pctButtons.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-pct]");
+    if (!btn) return;
+    pctButtons.querySelectorAll("button").forEach(b => b.classList.toggle("selected", b === btn));
+    updatePreview();
+  });
+  row.querySelector(".remove-person").addEventListener("click", () => {
+    row.remove();
+    relabelPeople();
+    updateAddButton();
+    updatePreview();
+  });
+  return row;
+}
+
+function addPerson() {
+  if (peopleContainer.querySelectorAll(".person").length >= 12) return;
+  peopleContainer.appendChild(createPersonRow());
+  relabelPeople();
+  updateAddButton();
+  updatePreview();
+}
+
+function relabelPeople() {
+  const rows = peopleContainer.querySelectorAll(".person");
+  const showRemove = rows.length > 1;
+  rows.forEach((row, i) => {
+    row.querySelector(".person-title").textContent = "Person " + (i + 1);
+    row.querySelector(".remove-person").classList.toggle("hidden", !showRemove);
+  });
+}
+
+function updateAddButton() {
+  addPersonBtn.disabled = peopleContainer.querySelectorAll(".person").length >= 12;
+}
+
+function readPeople() {
+  return Array.from(peopleContainer.querySelectorAll(".person")).map(row => {
+    const trainee = row.querySelector(".p-trainee").checked;
+    const sel = row.querySelector(".pct-buttons button.selected");
+    return {
+      name: row.querySelector(".p-name").value.trim(),
+      timeIn: row.querySelector(".p-in").value,
+      timeOut: row.querySelector(".p-out").value,
+      trainee: trainee,
+      pct: sel ? parseInt(sel.dataset.pct, 10) : 50,
+    };
+  });
+}
+
+function updatePreview() {
+  const totalTips = parseFloat(totalTipsEl.value);
+  const people = readPeople();
+  const ready = isFinite(totalTips) && totalTips >= 1 && people.length >= 1 &&
+    people.every(p => p.timeIn && p.timeOut && minutesWorked(p.timeIn, p.timeOut) > 0);
+  if (!ready) {
+    previewEl.innerHTML = `<div class="preview-row"><span>Enter tips and times to see the split</span></div>`;
+    return;
+  }
+  const splits = splitShift({ totalTips, people });
+  const rows = [];
+  rows.push(`<div class="preview-row"><span>Kitchen</span><span>${fmt(splits.kitchen)}</span></div>`);
+  rows.push(`<div class="preview-row"><span>Chefs</span><span>${fmt(splits.chefs)}</span></div>`);
+  splits.people.forEach((p, i) => {
+    const base = people[i].name || ("Person " + (i + 1));
+    const label = base + (p.trainee ? ` (${p.pct}% trainee)` : "");
+    rows.push(`<div class="preview-row"><span>${escapeHtml(label)} · ${fmtHours(p.hours)}</span><span>${fmt(p.amount)}</span></div>`);
+  });
+  const sum = splits.kitchen + splits.chefs + splits.people.reduce((s, p) => s + p.amount, 0);
+  rows.push(`<div class="preview-row total"><span>Total</span><span>${fmt(sum)}</span></div>`);
+  previewEl.innerHTML = rows.join("");
+}
+
+totalTipsEl.addEventListener("input", updatePreview);
+addPersonBtn.addEventListener("click", addPerson);
 attachCombo(enteredByEl);
-attachCombo(traineeNameEl);
+addPerson();
+updatePreview();
 loadStaff();
 
+// ---- submit ----
 let submissionId = newSubmissionId();
 function newSubmissionId() {
   if (crypto.randomUUID) return crypto.randomUUID();
@@ -369,9 +350,8 @@ function setFieldError(id, msg) {
 }
 
 function clearAllErrors() {
-  ["err-entered-by", "err-total-tips", "err-trainee-name"].forEach(id => setFieldError(id, ""));
-  namesContainer.querySelectorAll(".field-error").forEach(e => e.textContent = "");
-  namesContainer.querySelectorAll("input").forEach(i => i.classList.remove("error"));
+  ["err-entered-by", "err-total-tips"].forEach(id => setFieldError(id, ""));
+  peopleContainer.querySelectorAll(".field-error").forEach(e => e.textContent = "");
 }
 
 function validateClient() {
@@ -387,30 +367,27 @@ function validateClient() {
     setFieldError("err-total-tips", "Enter an amount between $1 and $100,000");
     ok = false;
   }
-  const serverInputs = Array.from(namesContainer.querySelectorAll("input"));
-  serverInputs.forEach((inp, i) => {
-    if (!inp.value.trim()) {
-      const errEl = namesContainer.querySelector(`[data-err-for="server-${i}"]`);
-      if (errEl) errEl.textContent = "Required";
-      inp.classList.add("error");
-      ok = false;
-    }
+  Array.from(peopleContainer.querySelectorAll(".person")).forEach(row => {
+    const err = row.querySelector(".field-error");
+    const name = row.querySelector(".p-name").value.trim();
+    const tin = row.querySelector(".p-in").value;
+    const tout = row.querySelector(".p-out").value;
+    let msg = "";
+    if (!name) msg = "Name required";
+    else if (!tin || !tout) msg = "Enter time in and out";
+    else if (minutesWorked(tin, tout) <= 0) msg = "Clock-out must be after clock-in";
+    if (err) err.textContent = msg;
+    if (msg) ok = false;
   });
-  if (traineeOn && !traineeNameEl.value.trim()) {
-    setFieldError("err-trainee-name", "Required");
-    ok = false;
-  }
   return ok;
 }
 
 function buildPayload() {
-  const snap = readFormSnapshot();
   return {
     submissionId,
     enteredBy: enteredByEl.value.trim(),
-    totalTips: snap.totalTips,
-    serverNames: snap.serverNames,
-    trainee: snap.trainee,
+    totalTips: parseFloat(totalTipsEl.value),
+    people: readPeople(),
   };
 }
 
@@ -456,13 +433,10 @@ function renderConfirmation(response) {
   rows.push(`<strong>${response.dedup ? "Previously recorded shift" : "Shift recorded"}</strong>`);
   rows.push(`<div class="preview-row"><span>Kitchen</span><span>${fmt(splits.kitchen)}</span></div>`);
   rows.push(`<div class="preview-row"><span>Chefs</span><span>${fmt(splits.chefs)}</span></div>`);
-  const names = Array.from(namesContainer.querySelectorAll("input")).map(i => i.value.trim());
-  names.forEach(n => {
-    rows.push(`<div class="preview-row"><span>${escapeHtml(n)}</span><span>${fmt(splits.perServer)}</span></div>`);
+  (splits.people || []).forEach(p => {
+    const label = (p.name || "Person") + (p.trainee ? ` (${p.pct}% trainee)` : "");
+    rows.push(`<div class="preview-row"><span>${escapeHtml(label)} · ${fmtHours(p.hours)}</span><span>${fmt(p.amount)}</span></div>`);
   });
-  if (splits.trainee != null) {
-    rows.push(`<div class="preview-row"><span>${escapeHtml(traineeNameEl.value.trim())} (${traineePct}%)</span><span>${fmt(splits.trainee)}</span></div>`);
-  }
   rows.push(`<button type="button" id="reset-btn" class="submit-btn" style="margin-top:1rem">Record another shift</button>`);
 
   form.classList.add("hidden");
@@ -473,17 +447,11 @@ function renderConfirmation(response) {
 function resetForm() {
   hideBanner();
   form.classList.remove("hidden");
-  form.reset();
-  numServers = 1;
-  traineeOn = false;
-  traineePct = 50;
-  srvCountEl.value = "1";
-  traineeFields.classList.add("hidden");
-  pctButtonsEl.querySelectorAll("button").forEach(b => {
-    b.classList.toggle("selected", b.dataset.pct === "50");
-  });
+  enteredByEl.value = "";
+  totalTipsEl.value = "";
+  peopleContainer.innerHTML = "";
+  addPerson();
   clearAllErrors();
-  renderServerNameInputs();
   submissionId = newSubmissionId();
   updatePreview();
   enteredByEl.focus();

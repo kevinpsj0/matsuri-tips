@@ -1,43 +1,54 @@
-// apps-script.gs - Google Apps Script web app for tip-calc.
+// apps-script.gs - Google Apps Script web app for tip-calc (v2, time-based split).
 // Deploy as: Web app, Execute as: me, Anyone has access.
-// Bound to the Google Sheet whose first sheet is the tip ledger with the
-// header row defined in docs/superpowers/specs/2026-05-27-tip-calc-design.md.
+// Bound to the Google Sheet whose first sheet is the tip ledger (one row per
+// recipient per shift). Header/layout defined in
+// docs/superpowers/specs/2026-05-29-time-based-split-design.md.
 
 // Column indices (1-based, A=1)
 const COL = {
-  DATE: 1, TIME: 2, ENTERED_BY: 3, TOTAL_TIPS: 4, NUM_SERVERS: 5,
-  SERVER_NAMES: 6, TRAINEE_NAME: 7, TRAINEE_PCT: 8,
-  KITCHEN: 9, CHEFS: 10, PER_SERVER: 11, TRAINEE_AMT: 12,
-  SUBMISSION_ID: 13,
+  DATE: 1, TIME: 2, ENTERED_BY: 3, RECIPIENT: 4, ROLE: 5, TRAINEE_PCT: 6,
+  TIME_IN: 7, TIME_OUT: 8, HOURS: 9, AMOUNT: 10, TOTAL_TIPS: 11, SUBMISSION_ID: 12,
 };
+const NUM_COLS = COL.SUBMISSION_ID;
 
-// MUST match calc.js (splitShift).
+// MUST match calc.js (minutesWorked / splitShift).
+function minutesWorked(timeIn, timeOut) {
+  const ip = timeIn.split(":");
+  const op = timeOut.split(":");
+  return (Number(op[0]) * 60 + Number(op[1])) - (Number(ip[0]) * 60 + Number(ip[1]));
+}
+
 function splitShift(input) {
   const T_cents = Math.round(input.totalTips * 100);
-  const numServers = input.serverNames.length;
-  const trainee = input.trainee;
-  const traineeFrac = trainee ? trainee.pct / 100 : 0;
-  const totalShares = numServers + traineeFrac;
-
   const kitchenCents = Math.round(T_cents * 0.10);
   const poolCents = Math.round(T_cents * 0.45);
-  const perServerCents = Math.floor(poolCents / totalShares);
-  const traineeCents = trainee ? Math.floor(poolCents * traineeFrac / totalShares) : 0;
-  const chefsCents = T_cents - kitchenCents - (numServers * perServerCents) - traineeCents;
 
-  const out = {
-    kitchen: kitchenCents / 100,
-    chefs: chefsCents / 100,
-    perServer: perServerCents / 100,
-  };
-  if (trainee) out.trainee = traineeCents / 100;
-  return out;
+  const enriched = input.people.map(function (p) {
+    const minutes = minutesWorked(p.timeIn, p.timeOut);
+    const rate = p.trainee ? p.pct : 100;
+    return { name: p.name, trainee: !!p.trainee, pct: p.trainee ? p.pct : null, minutes: minutes, weight: minutes * rate };
+  });
+  const totalWeight = enriched.reduce(function (s, p) { return s + p.weight; }, 0);
+
+  let distributed = 0;
+  const people = enriched.map(function (p) {
+    const cents = totalWeight > 0 ? Math.floor(poolCents * p.weight / totalWeight) : 0;
+    distributed += cents;
+    return { name: p.name, trainee: p.trainee, pct: p.pct, hours: Math.round(p.minutes / 60 * 100) / 100, amount: cents / 100 };
+  });
+  const chefsCents = T_cents - kitchenCents - distributed;
+
+  return { kitchen: kitchenCents / 100, chefs: chefsCents / 100, people: people };
 }
 
 function jsonResponse(obj) {
-  return ContentService
-    .createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function isValidTime(t) {
+  if (typeof t !== "string" || !/^\d{2}:\d{2}$/.test(t)) return false;
+  const h = Number(t.slice(0, 2)), m = Number(t.slice(3, 5));
+  return h >= 0 && h <= 23 && m >= 0 && m <= 59;
 }
 
 function validatePayload(p) {
@@ -48,43 +59,67 @@ function validatePayload(p) {
     return "Invalid enteredBy";
   if (typeof p.totalTips !== "number" || !isFinite(p.totalTips) || p.totalTips < 1 || p.totalTips > 100000)
     return "totalTips must be between 1 and 100000";
-  if (!Array.isArray(p.serverNames) || p.serverNames.length < 1 || p.serverNames.length > 6)
-    return "serverNames must have 1-6 entries";
-  for (const n of p.serverNames) {
-    if (typeof n !== "string" || !n.trim() || n.length > 40) return "Invalid server name";
-  }
-  if (p.trainee !== null && p.trainee !== undefined) {
-    if (typeof p.trainee !== "object") return "Invalid trainee";
-    if (typeof p.trainee.name !== "string" || !p.trainee.name.trim() || p.trainee.name.length > 40)
-      return "Invalid trainee name";
-    if (p.trainee.pct !== 25 && p.trainee.pct !== 50 && p.trainee.pct !== 75)
-      return "trainee.pct must be 25, 50, or 75";
+  if (!Array.isArray(p.people) || p.people.length < 1 || p.people.length > 12)
+    return "people must have 1-12 entries";
+  for (const person of p.people) {
+    if (!person || typeof person !== "object") return "Invalid person";
+    if (typeof person.name !== "string" || !person.name.trim() || person.name.length > 40)
+      return "Invalid person name";
+    if (!isValidTime(person.timeIn) || !isValidTime(person.timeOut))
+      return "Invalid time (use HH:MM)";
+    if (minutesWorked(person.timeIn, person.timeOut) <= 0)
+      return "Clock-out must be after clock-in for " + person.name.trim();
+    if (person.trainee && person.pct !== 25 && person.pct !== 50 && person.pct !== 75)
+      return "Trainee level must be 25, 50, or 75";
   }
   return null;
 }
 
-function findRowBySubmissionId(sheet, submissionId) {
+function findRowsBySubmissionId(sheet, submissionId) {
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return -1;
-  const ids = sheet.getRange(2, COL.SUBMISSION_ID, lastRow - 1, 1).getValues();
-  for (let i = 0; i < ids.length; i++) {
-    if (ids[i][0] === submissionId) return i + 2;
-  }
-  return -1;
+  if (lastRow < 2) return [];
+  const data = sheet.getRange(2, 1, lastRow - 1, NUM_COLS).getValues();
+  return data.filter(function (row) { return row[COL.SUBMISSION_ID - 1] === submissionId; });
 }
 
-function dedupResponseFromRow(sheet, rowIndex) {
-  const row = sheet.getRange(rowIndex, 1, 1, COL.SUBMISSION_ID).getValues()[0];
-  const splits = {
-    kitchen: Number(row[COL.KITCHEN - 1]),
-    chefs: Number(row[COL.CHEFS - 1]),
-    perServer: Number(row[COL.PER_SERVER - 1]),
-  };
-  const traineeAmt = row[COL.TRAINEE_AMT - 1];
-  if (traineeAmt !== "" && traineeAmt !== null && traineeAmt !== undefined) {
-    splits.trainee = Number(traineeAmt);
+function splitsFromRows(rows) {
+  const splits = { kitchen: 0, chefs: 0, people: [] };
+  for (const row of rows) {
+    const role = String(row[COL.ROLE - 1]);
+    const amount = Number(row[COL.AMOUNT - 1]) || 0;
+    if (role === "Kitchen") splits.kitchen = amount;
+    else if (role === "Chefs") splits.chefs = amount;
+    else {
+      splits.people.push({
+        name: String(row[COL.RECIPIENT - 1] || ""),
+        trainee: role === "Trainee",
+        pct: row[COL.TRAINEE_PCT - 1] === "" ? null : Number(row[COL.TRAINEE_PCT - 1]),
+        hours: Number(row[COL.HOURS - 1]) || 0,
+        amount: amount,
+      });
+    }
   }
-  return { ok: true, dedup: true, splits: splits };
+  return splits;
+}
+
+// Read path for the entry form's name dropdowns. Returns the roster from the
+// "Staff" tab (column A, below the header). No PIN: names are not sensitive and
+// the public entry form needs them.
+function handleFetchStaff() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Staff");
+  if (!sheet) return jsonResponse({ ok: true, staff: [] });
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return jsonResponse({ ok: true, staff: [] });
+
+  const values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  const seen = {};
+  const staff = [];
+  for (const row of values) {
+    const name = String(row[0] || "").trim();
+    const key = name.toLowerCase();
+    if (name && !seen[key]) { seen[key] = true; staff.push(name); }
+  }
+  return jsonResponse({ ok: true, staff: staff });
 }
 
 // Read path for the admin dashboard. PIN is checked against the ADMIN_PIN
@@ -109,42 +144,22 @@ function handleFetchData(payload) {
   const asTimeStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "HH:mm") : String(v || "");
   const numOrNull = (v) => (v === "" || v === null || v === undefined) ? null : Number(v);
 
-  const values = sheet.getRange(2, 1, lastRow - 1, COL.SUBMISSION_ID).getValues();
+  const values = sheet.getRange(2, 1, lastRow - 1, NUM_COLS).getValues();
   const rows = values.map((r) => ({
     date: asDateStr(r[COL.DATE - 1]),
     time: asTimeStr(r[COL.TIME - 1]),
     enteredBy: String(r[COL.ENTERED_BY - 1] || ""),
-    totalTips: Number(r[COL.TOTAL_TIPS - 1]) || 0,
-    numServers: Number(r[COL.NUM_SERVERS - 1]) || 0,
-    serverNames: String(r[COL.SERVER_NAMES - 1] || ""),
-    traineeName: String(r[COL.TRAINEE_NAME - 1] || ""),
+    recipient: String(r[COL.RECIPIENT - 1] || ""),
+    role: String(r[COL.ROLE - 1] || ""),
     traineePct: numOrNull(r[COL.TRAINEE_PCT - 1]),
-    kitchen: Number(r[COL.KITCHEN - 1]) || 0,
-    chefs: Number(r[COL.CHEFS - 1]) || 0,
-    perServer: Number(r[COL.PER_SERVER - 1]) || 0,
-    traineeAmt: numOrNull(r[COL.TRAINEE_AMT - 1]),
+    timeIn: asTimeStr(r[COL.TIME_IN - 1]),
+    timeOut: asTimeStr(r[COL.TIME_OUT - 1]),
+    hours: Number(r[COL.HOURS - 1]) || 0,
+    amount: Number(r[COL.AMOUNT - 1]) || 0,
+    totalTips: Number(r[COL.TOTAL_TIPS - 1]) || 0,
+    submissionId: String(r[COL.SUBMISSION_ID - 1] || ""),
   }));
   return jsonResponse({ ok: true, rows: rows });
-}
-
-// Read path for the entry form's name dropdowns. Returns the roster from the
-// "Staff" tab (column A, below the header). No PIN: names are not sensitive and
-// the public entry form needs them.
-function handleFetchStaff() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Staff");
-  if (!sheet) return jsonResponse({ ok: true, staff: [] });
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return jsonResponse({ ok: true, staff: [] });
-
-  const values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  const seen = {};
-  const staff = [];
-  for (const row of values) {
-    const name = String(row[0] || "").trim();
-    const key = name.toLowerCase();
-    if (name && !seen[key]) { seen[key] = true; staff.push(name); }
-  }
-  return jsonResponse({ ok: true, staff: staff });
 }
 
 function doPost(e) {
@@ -158,7 +173,6 @@ function doPost(e) {
   if (payload && payload.action === "fetchData") {
     return handleFetchData(payload);
   }
-
   if (payload && payload.action === "fetchStaff") {
     return handleFetchStaff();
   }
@@ -174,36 +188,62 @@ function doPost(e) {
   }
 
   try {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheets()[0];
 
-    const existingRow = findRowBySubmissionId(sheet, payload.submissionId);
-    if (existingRow > 0) {
-      return jsonResponse(dedupResponseFromRow(sheet, existingRow));
+    const existing = findRowsBySubmissionId(sheet, payload.submissionId);
+    if (existing.length) {
+      return jsonResponse({ ok: true, dedup: true, splits: splitsFromRows(existing) });
     }
 
     const splits = splitShift(payload);
 
-    const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+    const tz = ss.getSpreadsheetTimeZone();
     const now = new Date();
     const dateStr = Utilities.formatDate(now, tz, "yyyy-MM-dd");
     const timeStr = Utilities.formatDate(now, tz, "HH:mm");
+    const enteredBy = payload.enteredBy.trim();
 
-    const row = new Array(COL.SUBMISSION_ID).fill("");
-    row[COL.DATE - 1] = dateStr;
-    row[COL.TIME - 1] = timeStr;
-    row[COL.ENTERED_BY - 1] = payload.enteredBy.trim();
-    row[COL.TOTAL_TIPS - 1] = payload.totalTips;
-    row[COL.NUM_SERVERS - 1] = payload.serverNames.length;
-    row[COL.SERVER_NAMES - 1] = payload.serverNames.map(n => n.trim()).join(", ");
-    row[COL.TRAINEE_NAME - 1] = payload.trainee ? payload.trainee.name.trim() : "";
-    row[COL.TRAINEE_PCT - 1] = payload.trainee ? payload.trainee.pct : "";
-    row[COL.KITCHEN - 1] = splits.kitchen;
-    row[COL.CHEFS - 1] = splits.chefs;
-    row[COL.PER_SERVER - 1] = splits.perServer;
-    row[COL.TRAINEE_AMT - 1] = (splits.trainee != null) ? splits.trainee : "";
-    row[COL.SUBMISSION_ID - 1] = payload.submissionId;
+    const rowsToWrite = [];
 
-    sheet.appendRow(row);
+    function baseRow() {
+      const row = new Array(NUM_COLS).fill("");
+      row[COL.DATE - 1] = dateStr;
+      row[COL.TIME - 1] = timeStr;
+      row[COL.ENTERED_BY - 1] = enteredBy;
+      row[COL.TOTAL_TIPS - 1] = payload.totalTips;
+      row[COL.SUBMISSION_ID - 1] = payload.submissionId;
+      return row;
+    }
+
+    for (let i = 0; i < splits.people.length; i++) {
+      const sp = splits.people[i];
+      const pp = payload.people[i];
+      const row = baseRow();
+      row[COL.RECIPIENT - 1] = pp.name.trim();
+      row[COL.ROLE - 1] = sp.trainee ? "Trainee" : "Server";
+      row[COL.TRAINEE_PCT - 1] = sp.trainee ? sp.pct : "";
+      row[COL.TIME_IN - 1] = pp.timeIn;
+      row[COL.TIME_OUT - 1] = pp.timeOut;
+      row[COL.HOURS - 1] = sp.hours;
+      row[COL.AMOUNT - 1] = sp.amount;
+      rowsToWrite.push(row);
+    }
+
+    const kitchenRow = baseRow();
+    kitchenRow[COL.RECIPIENT - 1] = "Kitchen";
+    kitchenRow[COL.ROLE - 1] = "Kitchen";
+    kitchenRow[COL.AMOUNT - 1] = splits.kitchen;
+    rowsToWrite.push(kitchenRow);
+
+    const chefsRow = baseRow();
+    chefsRow[COL.RECIPIENT - 1] = "Chefs";
+    chefsRow[COL.ROLE - 1] = "Chefs";
+    chefsRow[COL.AMOUNT - 1] = splits.chefs;
+    rowsToWrite.push(chefsRow);
+
+    const startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, rowsToWrite.length, NUM_COLS).setValues(rowsToWrite);
 
     return jsonResponse({ ok: true, dedup: false, splits: splits });
   } catch (err) {
@@ -213,22 +253,23 @@ function doPost(e) {
   }
 }
 
-// One-time initializer. Run this once from the Apps Script editor: it sets the
-// spreadsheet timezone, writes the header row, freezes it, and formats the
-// currency columns. Running it also triggers the OAuth consent the web app needs.
+// One-time initializer. Run this once from the Apps Script editor. It sets the
+// timezone, CLEARS the ledger (start fresh), writes the v2 header, freezes it,
+// and formats the currency columns. Running it also triggers the OAuth consent
+// the web app needs.
 function setupSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   ss.setSpreadsheetTimeZone("America/Los_Angeles");
   const sheet = ss.getSheets()[0];
+  sheet.clear();
   const header = [
-    "Date", "Time", "Entered by", "Total tips", "# of full servers",
-    "Server names", "Trainee name", "Trainee %", "Kitchen $", "Chefs $",
-    "Per-server $", "Trainee $", "Submission ID",
+    "Date", "Time", "Entered by", "Recipient", "Role", "Trainee %",
+    "Time in", "Time out", "Hours", "Amount $", "Total tips", "Submission ID",
   ];
   sheet.getRange(1, 1, 1, header.length).setValues([header]).setFontWeight("bold");
   sheet.setFrozenRows(1);
-  sheet.getRange("D:D").setNumberFormat("$#,##0.00");
-  sheet.getRange("I:L").setNumberFormat("$#,##0.00");
+  sheet.getRange("J:J").setNumberFormat("$#,##0.00"); // Amount $
+  sheet.getRange("K:K").setNumberFormat("$#,##0.00"); // Total tips
 }
 
 // One-time helper: creates the "Staff" tab that feeds the entry form's name
@@ -248,18 +289,17 @@ function setupStaffSheet() {
 // version control so the PIN never lands in this public repo.
 
 // Manual smoke test runnable inside the Apps Script editor.
-// Pass an explicit submissionId string to exercise the dedup path:
-//   _smokeTest()              -> fresh ID, writes a row
-//   _smokeTest("dedup-test")  -> fixed ID; running twice exercises dedup
 function _smokeTest(idOverride) {
   const payload = {
     submissionId: idOverride || ("test-" + Date.now()),
     enteredBy: "TEST",
-    totalTips: 1000,
-    serverNames: ["Alice", "Bob"],
-    trainee: { name: "Charlie", pct: 50 },
+    totalTips: 400,
+    people: [
+      { name: "Alice", timeIn: "10:00", timeOut: "16:00", trainee: false },
+      { name: "Bob", timeIn: "13:00", timeOut: "16:00", trainee: false },
+      { name: "Charlie", timeIn: "12:00", timeOut: "16:00", trainee: true, pct: 50 },
+    ],
   };
   const fakeEvent = { postData: { contents: JSON.stringify(payload) } };
-  const resp = doPost(fakeEvent);
-  Logger.log(resp.getContent());
+  Logger.log(doPost(fakeEvent).getContent());
 }
