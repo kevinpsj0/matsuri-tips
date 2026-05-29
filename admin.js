@@ -10,6 +10,7 @@ const fmt = (n) => money.format(n || 0);
 
 let sessionPin = "";
 let allRows = [];
+let pendingRequests = [];
 let period = "today";
 let activeTab = "summary";
 let calMonth = null; // { y, m } 1-based month
@@ -100,10 +101,50 @@ async function tryPin(pin, silent) {
     gateEl.classList.add("hidden");
     appEl.classList.remove("hidden");
     render();
+    loadRequests().then(() => { if (activeTab === "requests") render(); });
   } else {
     localStorage.removeItem(PIN_KEY);
     if (!silent) showGateErr((data && data.error) || "Wrong PIN.");
     focusPin();
+  }
+}
+
+async function loadRequests() {
+  try {
+    const res = await fetch(ENDPOINT_URL, {
+      method: "POST", mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "listRequests", pin: sessionPin }),
+    });
+    const data = await res.json();
+    pendingRequests = (data && data.ok) ? (data.requests || []) : [];
+  } catch (e) { pendingRequests = []; }
+  const b = document.getElementById("req-badge");
+  if (b) {
+    if (pendingRequests.length) { b.textContent = pendingRequests.length; b.classList.add("show"); }
+    else { b.textContent = ""; b.classList.remove("show"); }
+  }
+}
+
+async function resolveRequest(rid, resolution) {
+  const verb = resolution === "approve" ? "Approve and apply changes to the ledger?" : "Deny this request?";
+  if (!window.confirm(verb)) return;
+  try {
+    const res = await fetch(ENDPOINT_URL, {
+      method: "POST", mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "resolveRequest", pin: sessionPin, requestId: rid, resolution: resolution }),
+    });
+    const data = await res.json();
+    if (!data || !data.ok) { window.alert((data && data.error) || "Could not resolve."); return; }
+    await loadRequests();
+    if (resolution === "approve") {
+      await refresh();
+    } else {
+      render();
+    }
+  } catch (e) {
+    window.alert("Network error. Try again.");
   }
 }
 
@@ -150,6 +191,7 @@ function render() {
   if (activeTab === "summary") view.innerHTML = renderSummary(rows, start, end);
   else if (activeTab === "shifts") view.innerHTML = renderShifts(rows);
   else if (activeTab === "people") view.innerHTML = renderPeople(rows);
+  else if (activeTab === "requests") view.innerHTML = renderRequests();
 }
 
 function renderSummary(rows, start, end) {
@@ -231,6 +273,64 @@ function openShiftModal(sid) {
   if (!shiftRows.length) return;
   document.getElementById("modal-body").innerHTML = shiftCardsHtml(shiftRows);
   document.getElementById("shift-modal").classList.remove("hidden");
+}
+
+// Build recipient-shaped rows from a proposed shift (uses splitShift from calc.js).
+function synthesizePropRows(req) {
+  if (!req || !req.proposed || typeof splitShift !== "function") return [];
+  const p = req.proposed;
+  let splits;
+  try { splits = splitShift(p); } catch (e) { return []; }
+  const date = req.shiftDate || "";
+  const time = req.shiftTime || "";
+  const enteredBy = p.enteredBy || "";
+  const totalTips = p.totalTips || 0;
+  const sid = req.submissionId || "";
+  const out = [];
+  for (let i = 0; i < splits.people.length; i++) {
+    const sp = splits.people[i];
+    const pp = p.people[i];
+    out.push({
+      date: date, time: time, enteredBy: enteredBy,
+      recipient: pp.name, role: sp.trainee ? "Trainee" : "Server",
+      traineePct: sp.trainee ? sp.pct : null,
+      timeIn: pp.timeIn, timeOut: pp.timeOut,
+      hours: sp.hours, amount: sp.amount,
+      totalTips: totalTips, submissionId: sid,
+    });
+  }
+  out.push({ date: date, time: time, enteredBy: enteredBy, recipient: "Kitchen", role: "Kitchen", traineePct: null, timeIn: "", timeOut: "", hours: 0, amount: splits.kitchen, totalTips: totalTips, submissionId: sid });
+  out.push({ date: date, time: time, enteredBy: enteredBy, recipient: "Chefs", role: "Chefs", traineePct: null, timeIn: "", timeOut: "", hours: 0, amount: splits.chefs, totalTips: totalTips, submissionId: sid });
+  return out;
+}
+
+function renderRequests() {
+  if (!pendingRequests.length) return emptyState("No pending edit requests.");
+  return pendingRequests.map((req) => {
+    const original = allRows.filter((r) => r.submissionId === req.submissionId);
+    const proposed = synthesizePropRows(req);
+    const noteHtml = req.note ? `<div class="req-note">${escapeHtml(req.note)}</div>` : "";
+    return `<div class="req-card">
+      <div class="req-head">
+        <span class="req-when">${escapeHtml(req.requestedAt || "")} · by ${escapeHtml(req.requestedBy || "?")}</span>
+        <div class="req-actions">
+          <button type="button" class="btn-deny" data-resolve="deny" data-rid="${escapeHtml(req.id)}">Deny</button>
+          <button type="button" class="btn-approve" data-resolve="approve" data-rid="${escapeHtml(req.id)}">Approve</button>
+        </div>
+      </div>
+      ${noteHtml}
+      <div class="req-diff">
+        <div class="diff-col">
+          <div class="diff-label">Current</div>
+          ${original.length ? shiftCardsHtml(original) : `<div class="empty-state">Original shift not found in the ledger.</div>`}
+        </div>
+        <div class="diff-col">
+          <div class="diff-label">Proposed</div>
+          ${proposed.length ? shiftCardsHtml(proposed) : `<div class="empty-state">Proposed data is invalid.</div>`}
+        </div>
+      </div>
+    </div>`;
+  }).join("");
 }
 
 function buildBarChart(series) {
@@ -460,6 +560,8 @@ function wireEvents() {
     if (cell) { calDay = cell.getAttribute("data-day"); render(); return; }
     const dlbar = e.target.closest(".dl-bar");
     if (dlbar && dlbar.dataset.sid) { openShiftModal(dlbar.dataset.sid); return; }
+    const resolveBtn = e.target.closest("[data-resolve]");
+    if (resolveBtn && resolveBtn.dataset.rid) { resolveRequest(resolveBtn.dataset.rid, resolveBtn.dataset.resolve); return; }
   });
 
   const modal = document.getElementById("shift-modal");

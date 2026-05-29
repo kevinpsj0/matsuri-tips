@@ -47,7 +47,7 @@
   .toast.hidden { display: none; }
   .modal { position: fixed; inset: 0; background: rgba(20,34,63,0.5); display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 50; }
   .modal.hidden { display: none; }
-  .modal-card { background: #fff; border-radius: 12px; max-width: 380px; width: 100%; padding: 1rem; }
+  .modal-card { background: #fff; border-radius: 12px; max-width: 420px; width: 100%; padding: 1rem; max-height: 90vh; overflow-y: auto; }
   .modal-card h2 { font-size: 1.05rem; margin: 0 0 .3rem; }
   .modal-card .sub { color: #6b7280; font-size: .82rem; margin-bottom: .6rem; }
   .modal-card label { display: block; font-weight: 600; font-size: .85rem; margin: .6rem 0 .2rem; }
@@ -55,12 +55,24 @@
     width: 100%; padding: .55rem; border: 1px solid #ccc; border-radius: 6px;
     font: inherit; font-size: .95rem; background: #fff;
   }
-  .modal-card textarea { resize: vertical; min-height: 5rem; }
+  .modal-card textarea { resize: vertical; min-height: 4.5rem; }
   .err { color: #b00; font-size: .82rem; margin-top: .4rem; min-height: 1em; }
   .modal-actions { display: flex; gap: .5rem; margin-top: .8rem; }
   .modal-actions button { flex: 1; padding: .65rem; font-size: .95rem; border-radius: 8px; border: 0; cursor: pointer; }
   .btn-primary { background: #3b82f6; color: #fff; font-weight: 600; }
   .btn-secondary { background: #eee; color: #222; }
+  hr.sep { border: 0; border-top: 1px solid #eee; margin: .8rem 0; }
+  .hint { color: #6b7280; font-size: .82rem; margin: 0 0 .5rem; }
+  .edit-person { border: 1px solid #ddd; border-radius: 8px; padding: .55rem; margin-bottom: .5rem; }
+  .ep-row { display: flex; gap: .4rem; align-items: center; margin-bottom: .3rem; }
+  .ep-row > input { flex: 1; min-width: 0; }
+  .ep-remove { border: 0; background: transparent; color: #b00; font-size: 1.1rem; cursor: pointer; padding: 0 .4rem; line-height: 1; }
+  .ep-trainee-row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; font-size: .85rem; }
+  .ep-pct { display: flex; gap: .3rem; }
+  .ep-pct.hidden { display: none; }
+  .ep-pct button { padding: .3rem .55rem; font-size: .78rem; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; }
+  .ep-pct button.selected { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+  .add-btn { border: 1px dashed #999; background: #fff; padding: .55rem; width: 100%; border-radius: 8px; cursor: pointer; margin-top: .25rem; }
 </style>
 </head>
 <body>
@@ -78,14 +90,30 @@
   <div class="modal-card">
     <h2>Request edit</h2>
     <div class="sub" id="edit-sub"></div>
+
     <label for="req-name">Your name</label>
     <input type="text" id="req-name" autocomplete="off" maxlength="60">
-    <label for="req-reason">What's wrong?</label>
-    <textarea id="req-reason" maxlength="500" placeholder="e.g., Wrong tip amount, missed a person"></textarea>
+
+    <label for="req-note">Note (optional)</label>
+    <textarea id="req-note" maxlength="500" placeholder="Anything the owner should know"></textarea>
+
+    <hr class="sep">
+    <p class="hint">Edit any field below, then send. The owner will review and approve.</p>
+
+    <label for="edit-by">Entered by</label>
+    <input type="text" id="edit-by" maxlength="60" autocomplete="off">
+
+    <label for="edit-total">Total tip amount ($)</label>
+    <input type="number" id="edit-total" inputmode="decimal" step="0.01" min="1" max="100000">
+
+    <label>People</label>
+    <div id="edit-people"></div>
+    <button type="button" class="add-btn" id="edit-add">+ Add person</button>
+
     <div class="err" id="req-err"></div>
     <div class="modal-actions">
       <button type="button" class="btn-secondary" id="req-cancel">Cancel</button>
-      <button type="button" class="btn-primary" id="req-send">Send</button>
+      <button type="button" class="btn-primary" id="req-send">Send request</button>
     </div>
   </div>
 </div>
@@ -105,10 +133,16 @@ const refreshBtn = document.getElementById("refresh-btn");
 const modal = document.getElementById("edit-modal");
 const editSub = document.getElementById("edit-sub");
 const reqName = document.getElementById("req-name");
-const reqReason = document.getElementById("req-reason");
+const reqNote = document.getElementById("req-note");
 const reqErr = document.getElementById("req-err");
 const reqSend = document.getElementById("req-send");
+const editBy = document.getElementById("edit-by");
+const editTotal = document.getElementById("edit-total");
+const editPeople = document.getElementById("edit-people");
+const editAdd = document.getElementById("edit-add");
 const toastEl = document.getElementById("toast");
+
+let shiftsMap = {};
 let currentSid = null;
 
 async function load() {
@@ -131,14 +165,14 @@ async function load() {
 const roleOrder = { Server: 0, Trainee: 1, Kitchen: 2, Chefs: 3 };
 
 function render(rows) {
-  if (!rows.length) { content.innerHTML = `<div class="empty">No shifts entered today yet.</div>`; return; }
-  const shifts = {};
+  if (!rows.length) { content.innerHTML = `<div class="empty">No shifts entered today yet.</div>`; shiftsMap = {}; return; }
+  shiftsMap = {};
   for (const r of rows) {
     const id = r.submissionId || (r.date + r.time);
-    if (!shifts[id]) shifts[id] = { id: id, date: r.date, time: r.time, enteredBy: r.enteredBy, totalTips: r.totalTips, recipients: [] };
-    shifts[id].recipients.push(r);
+    if (!shiftsMap[id]) shiftsMap[id] = { id: id, date: r.date, time: r.time, enteredBy: r.enteredBy, totalTips: r.totalTips, recipients: [] };
+    shiftsMap[id].recipients.push(r);
   }
-  const list = Object.values(shifts).sort((a, b) => (b.time || "").localeCompare(a.time || ""));
+  const list = Object.values(shiftsMap).sort((a, b) => (b.time || "").localeCompare(a.time || ""));
   content.innerHTML = list.map((sh) => {
     const recips = sh.recipients.slice().sort((a, b) => (roleOrder[a.role] || 0) - (roleOrder[b.role] || 0));
     const lines = recips.map((r) => {
@@ -147,8 +181,7 @@ function render(rows) {
       const tm = (r.timeIn && r.timeOut) ? ` · ${escapeHtml(r.timeIn)}–${escapeHtml(r.timeOut)}` : "";
       return `<div class="ln"><span>${label}${tm}</span><span class="val">${fmt(r.amount)}</span></div>`;
     }).join("");
-    const label = `${sh.date} ${sh.time} · ${fmt(sh.totalTips)}`;
-    return `<div class="shift" data-sid="${escapeHtml(sh.id)}" data-label="${escapeHtml(label)}">
+    return `<div class="shift" data-sid="${escapeHtml(sh.id)}">
       <div class="shift-head">
         <span class="when">${escapeHtml(sh.time)} · <span class="tot">${fmt(sh.totalTips)}</span></span>
         <button type="button" class="req-btn">Request edit</button>
@@ -159,15 +192,97 @@ function render(rows) {
   }).join("");
 }
 
+// ---- edit modal ----
+
+function personRowHtml(p) {
+  const trainee = !!p.trainee;
+  const pct = (trainee && (p.pct === 25 || p.pct === 50 || p.pct === 75)) ? p.pct : 50;
+  function btn(v) { return `<button type="button" data-pct="${v}"${pct === v ? ' class="selected"' : ""}>${v}%</button>`; }
+  return `<div class="edit-person">
+    <div class="ep-row">
+      <input type="text" class="ep-name" maxlength="40" placeholder="Name" value="${escapeHtml(p.name || "")}">
+      <button type="button" class="ep-remove" aria-label="Remove">&times;</button>
+    </div>
+    <div class="ep-row">
+      <input type="time" class="ep-in" value="${escapeHtml(p.timeIn || "")}">
+      <input type="time" class="ep-out" value="${escapeHtml(p.timeOut || "")}">
+    </div>
+    <div class="ep-trainee-row">
+      <label><input type="checkbox" class="ep-trainee"${trainee ? " checked" : ""}> Trainee</label>
+      <div class="ep-pct${trainee ? "" : " hidden"}">${btn(25)}${btn(50)}${btn(75)}</div>
+    </div>
+  </div>`;
+}
+
+function renderEditPeople(people) {
+  editPeople.innerHTML = people.map(personRowHtml).join("");
+}
+
+function readEditPeople() {
+  return Array.from(editPeople.querySelectorAll(".edit-person")).map((row) => {
+    const trainee = row.querySelector(".ep-trainee").checked;
+    const sel = row.querySelector(".ep-pct button.selected");
+    return {
+      name: row.querySelector(".ep-name").value.trim(),
+      timeIn: row.querySelector(".ep-in").value,
+      timeOut: row.querySelector(".ep-out").value,
+      trainee: trainee,
+      pct: sel ? parseInt(sel.dataset.pct, 10) : 50,
+    };
+  });
+}
+
+// Delegated handlers on the people container
+editPeople.addEventListener("click", (e) => {
+  const remove = e.target.closest(".ep-remove");
+  if (remove) {
+    const rows = editPeople.querySelectorAll(".edit-person");
+    if (rows.length <= 1) return; // keep at least one
+    remove.closest(".edit-person").remove();
+    return;
+  }
+  const pctBtn = e.target.closest(".ep-pct button[data-pct]");
+  if (pctBtn) {
+    const group = pctBtn.parentElement;
+    group.querySelectorAll("button").forEach((b) => b.classList.toggle("selected", b === pctBtn));
+    return;
+  }
+});
+editPeople.addEventListener("change", (e) => {
+  const toggle = e.target.closest(".ep-trainee");
+  if (!toggle) return;
+  const row = toggle.closest(".edit-person");
+  const pct = row.querySelector(".ep-pct");
+  pct.classList.toggle("hidden", !toggle.checked);
+  if (toggle.checked && !pct.querySelector("button.selected")) {
+    pct.querySelectorAll("button").forEach((b) => b.classList.toggle("selected", b.dataset.pct === "50"));
+  }
+});
+
+editAdd.addEventListener("click", () => {
+  const rows = editPeople.querySelectorAll(".edit-person");
+  if (rows.length >= 12) return;
+  editPeople.insertAdjacentHTML("beforeend", personRowHtml({ name: "", timeIn: "", timeOut: "", trainee: false }));
+});
+
 content.addEventListener("click", (e) => {
   const btn = e.target.closest(".req-btn");
   if (!btn) return;
   const card = btn.closest(".shift");
-  currentSid = card.dataset.sid;
-  editSub.textContent = "Shift " + card.dataset.label + ". The owner will review.";
+  const sid = card.dataset.sid;
+  const sh = shiftsMap[sid];
+  if (!sh) return;
+  currentSid = sid;
+  editSub.textContent = `Shift ${sh.date} ${sh.time} · ${fmt(sh.totalTips)}. The owner will review.`;
   reqName.value = "";
-  reqReason.value = "";
+  reqNote.value = "";
   reqErr.textContent = "";
+  editBy.value = sh.enteredBy || "";
+  editTotal.value = (sh.totalTips != null) ? sh.totalTips : "";
+  const people = sh.recipients
+    .filter((r) => r.role === "Server" || r.role === "Trainee")
+    .map((r) => ({ name: r.recipient || "", timeIn: r.timeIn || "", timeOut: r.timeOut || "", trainee: r.role === "Trainee", pct: r.traineePct }));
+  renderEditPeople(people.length ? people : [{ name: "", timeIn: "", timeOut: "", trainee: false }]);
   modal.classList.remove("hidden");
   reqName.focus();
 });
@@ -175,18 +290,38 @@ content.addEventListener("click", (e) => {
 document.getElementById("req-cancel").addEventListener("click", () => modal.classList.add("hidden"));
 modal.addEventListener("click", (e) => { if (e.target === modal) modal.classList.add("hidden"); });
 
+function isValidTime(t) { return typeof t === "string" && /^\d{2}:\d{2}$/.test(t); }
+function minutes(t) { const [h, m] = t.split(":").map(Number); return h * 60 + m; }
+
+function buildProposed() {
+  const enteredBy = editBy.value.trim();
+  const totalTips = parseFloat(editTotal.value);
+  const people = readEditPeople();
+  if (!enteredBy) return { error: "Please enter who recorded the shift." };
+  if (!isFinite(totalTips) || totalTips < 1 || totalTips > 100000) return { error: "Total tip amount must be between $1 and $100,000." };
+  if (!people.length) return { error: "At least one person is required." };
+  for (let i = 0; i < people.length; i++) {
+    const p = people[i];
+    if (!p.name) return { error: `Person ${i + 1}: name is required.` };
+    if (!isValidTime(p.timeIn) || !isValidTime(p.timeOut)) return { error: `Person ${i + 1}: enter clock in and out.` };
+    if (minutes(p.timeOut) - minutes(p.timeIn) <= 0) return { error: `Person ${i + 1}: clock-out must be after clock-in.` };
+  }
+  return { proposed: { enteredBy, totalTips, people } };
+}
+
 reqSend.addEventListener("click", async () => {
   const name = reqName.value.trim();
-  const reason = reqReason.value.trim();
+  const note = reqNote.value.trim();
   if (!name) { reqErr.textContent = "Please enter your name."; reqName.focus(); return; }
-  if (!reason) { reqErr.textContent = "Please describe what's wrong."; reqReason.focus(); return; }
+  const built = buildProposed();
+  if (built.error) { reqErr.textContent = built.error; return; }
   reqErr.textContent = "";
   reqSend.disabled = true; reqSend.textContent = "Sending...";
   try {
     const res = await fetch(ENDPOINT_URL, {
       method: "POST", mode: "cors",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action: "requestEdit", submissionId: currentSid, requestedBy: name, reason: reason }),
+      body: JSON.stringify({ action: "requestEdit", submissionId: currentSid, requestedBy: name, note: note, proposed: built.proposed }),
     });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
@@ -194,9 +329,9 @@ reqSend.addEventListener("click", async () => {
     modal.classList.add("hidden");
     showToast("Edit request sent to the owner.");
   } catch (err) {
-    reqErr.textContent = "Could not send. Check connection and try again.";
+    reqErr.textContent = "Could not send: " + (err && err.message || "try again.");
   } finally {
-    reqSend.disabled = false; reqSend.textContent = "Send";
+    reqSend.disabled = false; reqSend.textContent = "Send request";
   }
 });
 

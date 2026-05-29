@@ -177,6 +177,18 @@
   .modal.hidden { display: none; }
   .modal-card { background: #fff; border-radius: 12px; max-width: 480px; width: 100%; max-height: 80vh; overflow-y: auto; padding: 1rem; position: relative; }
   .modal-close { position: absolute; top: .3rem; right: .5rem; border: 0; background: transparent; font-size: 1.6rem; line-height: 1; cursor: pointer; color: var(--muted); }
+  .badge { display: none; background: #b00; color: #fff; border-radius: 999px; padding: 0 .35rem; font-size: .7rem; margin-left: .25rem; font-weight: 700; }
+  .badge.show { display: inline-block; }
+  .req-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .85rem; margin-bottom: .8rem; }
+  .req-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .req-when { font-size: .85rem; color: var(--muted); }
+  .req-actions { display: flex; gap: .4rem; }
+  .req-note { background: #fff8e6; border: 1px solid #f0d77c; border-radius: 6px; padding: .5rem .6rem; margin: .55rem 0; font-size: .88rem; color: #604c00; white-space: pre-wrap; }
+  .req-diff { display: flex; flex-direction: column; gap: .8rem; margin-top: .55rem; }
+  .diff-col .diff-label { font-size: .78rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: .25rem; }
+  .btn-approve { background: var(--indigo); color: #fff; border: 0; padding: .45rem .85rem; border-radius: 999px; font-size: .85rem; font-weight: 600; cursor: pointer; }
+  .btn-deny { background: #fff; color: #b00; border: 1px solid #b00; padding: .45rem .85rem; border-radius: 999px; font-size: .85rem; font-weight: 600; cursor: pointer; }
+  .btn-approve:disabled, .btn-deny:disabled { opacity: .5; cursor: default; }
 
   .empty-state { text-align: center; color: var(--muted); padding: 2rem 1rem; }
   .loading { text-align: center; color: var(--muted); padding: 2rem; }
@@ -231,6 +243,7 @@
       <button data-tab="calendar">Calendar</button>
       <button data-tab="shifts">Shifts</button>
       <button data-tab="people">People</button>
+      <button data-tab="requests">Requests<span id="req-badge" class="badge"></span></button>
     </div>
 
     <div id="view"></div>
@@ -246,6 +259,7 @@
   </div>
 </div>
 
+<script src="calc.js"></script>
 <script src="admin.js"></script>
 <script>
 if ("serviceWorker" in navigator) {
