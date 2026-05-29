@@ -93,6 +93,7 @@
   .combo-list .opt:first-child { border-top: 0; }
   .combo-list .opt:active, .combo-list .opt.active { background: #e8f0ff; }
   .hidden { display: none !important; }
+  .switch-user { display: inline-block; background: none; border: 0; color: #3b82f6; font-size: .82rem; padding: .15rem 0; margin-top: .1rem; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -111,6 +112,7 @@
     <div class="combo-list hidden"></div>
   </div>
   <div class="field-error" id="err-entered-by"></div>
+  <button type="button" id="switch-user" class="switch-user hidden">Not <span id="me-name"></span>?</button>
 
   <label for="total-tips">Total tip amount ($)</label>
   <input type="number" id="total-tips" inputmode="decimal" step="0.01" min="1" max="100000">
@@ -148,6 +150,9 @@ function escapeHtml(s) {
 
 // ---- staff dropdown (custom combobox) ----
 const STAFF_KEY = "matsuri_staff";
+const ME_KEY = "matsuri_me";
+function getMe() { try { return localStorage.getItem(ME_KEY) || ""; } catch (e) { return ""; } }
+function setMe(name) { try { name ? localStorage.setItem(ME_KEY, name) : localStorage.removeItem(ME_KEY); } catch (e) {} }
 let staffNames = [];
 
 function setStaffNames(names) {
