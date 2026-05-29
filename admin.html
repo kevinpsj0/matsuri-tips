@@ -238,6 +238,15 @@
 <script src="admin.js"></script>
 <script>
 if ("serviceWorker" in navigator) {
+  // Auto-refresh the dashboard when a new version takes over (read-only, so safe to reload).
+  if (navigator.serviceWorker.controller) {
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+  }
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   });
