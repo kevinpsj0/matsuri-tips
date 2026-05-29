@@ -85,7 +85,9 @@
   .periods button.active { background: var(--indigo); color: #fff; border-color: var(--indigo); }
   .custom-range { display: none; margin-top: .5rem; }
   .custom-range.show { display: flex; flex-direction: column; gap: .5rem; }
-  .custom-range .preset { align-self: flex-start; padding: .5rem .85rem; border: 1px solid var(--indigo); border-radius: 999px; background: #fff; color: var(--indigo); font-size: .85rem; cursor: pointer; }
+  .day-presets { display: flex; flex-wrap: wrap; gap: .4rem; }
+  .custom-range .preset { padding: .5rem .8rem; border: 1px solid var(--indigo); border-radius: 999px; background: #fff; color: var(--indigo); font-size: .85rem; cursor: pointer; }
+  .custom-range .preset.active { background: var(--indigo); color: #fff; }
   .date-row { display: flex; gap: .5rem; align-items: center; }
   .custom-range input { flex: 1; padding: .5rem; border: 1px solid var(--line); border-radius: 8px; font-size: .9rem; min-width: 0; }
   .range-label { color: var(--muted); font-size: .82rem; margin: .5rem 0 0; }
@@ -203,7 +205,7 @@
       <button data-period="custom">Custom</button>
     </div>
     <div class="custom-range" id="custom-range">
-      <button type="button" class="preset" id="preset-last7">Last 7 days</button>
+      <div class="day-presets" id="day-presets"></div>
       <div class="date-row">
         <input type="date" id="custom-start" aria-label="Start date">
         <span>to</span>

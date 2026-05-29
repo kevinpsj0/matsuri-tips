@@ -141,6 +141,7 @@ function render() {
   if (onCal) { view.innerHTML = calDay ? renderCalDayDetail(calDay) : renderCalendar(); return; }
 
   const { start, end } = currentRange();
+  document.querySelectorAll("#day-presets .day-preset").forEach((b) => b.classList.toggle("active", start === end && b.dataset.day === start));
   const rows = rowsInRange(start, end);
   const shiftCount = new Set(rows.map((r) => r.submissionId)).size;
   const label = start === end ? start : `${start} to ${end}`;
@@ -421,10 +422,12 @@ function wireEvents() {
   });
   document.getElementById("custom-start").addEventListener("change", () => { if (period === "custom") render(); });
   document.getElementById("custom-end").addEventListener("change", () => { if (period === "custom") render(); });
-  document.getElementById("preset-last7").addEventListener("click", () => {
-    const today = todayISO();
-    document.getElementById("custom-start").value = addDays(today, -6);
-    document.getElementById("custom-end").value = today;
+  document.getElementById("day-presets").addEventListener("click", (e) => {
+    const btn = e.target.closest(".day-preset");
+    if (!btn) return;
+    const d = btn.getAttribute("data-day");
+    document.getElementById("custom-start").value = d;
+    document.getElementById("custom-end").value = d;
     period = "custom";
     render();
   });
@@ -447,10 +450,22 @@ function wireEvents() {
   });
 }
 
+function buildDayPresets() {
+  const wd = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const today = todayISO();
+  let html = "";
+  for (let back = 2; back <= 6; back++) {
+    const d = addDays(today, -back);
+    html += `<button type="button" class="preset day-preset" data-day="${d}">${wd[isoWeekday(d)]}</button>`;
+  }
+  document.getElementById("day-presets").innerHTML = html;
+}
+
 function init() {
   const t = isoParts(todayISO());
   calMonth = { y: t.y, m: t.m };
   wireEvents();
+  buildDayPresets();
   const stored = localStorage.getItem(PIN_KEY);
   if (stored) tryPin(stored, true); else focusPin();
 }
