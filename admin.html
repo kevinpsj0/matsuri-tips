@@ -193,6 +193,21 @@
   .btn-deny { background: #fff; color: #b00; border: 1px solid #b00; padding: .45rem .85rem; border-radius: 999px; font-size: .85rem; font-weight: 600; cursor: pointer; }
   .btn-approve:disabled, .btn-deny:disabled { opacity: .5; cursor: default; }
 
+  .staff-panel { margin-bottom: .8rem; }
+  .staff-add { display: flex; gap: .5rem; margin: .25rem 0 .8rem; }
+  .staff-add input { flex: 1; min-width: 0; padding: .55rem .7rem; border: 1px solid var(--line); border-radius: 8px; font-size: 1rem; }
+  .staff-add button { background: var(--indigo); color: #fff; border: 0; padding: .55rem 1rem; border-radius: 8px; font-size: .9rem; font-weight: 600; cursor: pointer; }
+  .staff-list { display: flex; flex-direction: column; gap: .4rem; }
+  .staff-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .45rem .55rem; background: #fafafa; border: 1px solid var(--line); border-radius: 8px; }
+  .staff-row.inactive { background: #f3f3f3; color: var(--muted); }
+  .staff-name { font-size: .95rem; word-break: break-word; }
+  .staff-btn { background: #fff; color: var(--ink); border: 1px solid var(--line); padding: .35rem .7rem; border-radius: 999px; font-size: .8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .staff-row.inactive .staff-btn { color: var(--indigo); border-color: var(--indigo); }
+  .staff-empty { color: var(--muted); font-size: .9rem; padding: .35rem .1rem; }
+  .staff-inactive { margin-top: .8rem; }
+  .staff-inactive summary { cursor: pointer; color: var(--muted); font-size: .85rem; padding: .25rem 0; }
+  .staff-inactive > .staff-row { margin-top: .4rem; }
+
   .empty-state { text-align: center; color: var(--muted); padding: 2rem 1rem; }
   .loading { text-align: center; color: var(--muted); padding: 2rem; }
   .hidden { display: none !important; }

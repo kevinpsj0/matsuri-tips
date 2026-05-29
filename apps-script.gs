@@ -109,21 +109,119 @@ function splitsFromRows(rows) {
 // Read path for the entry form's name dropdowns. Returns the roster from the
 // "Staff" tab (column A, below the header). No PIN: names are not sensitive and
 // the public entry form needs them.
+// Reads col A (name) and col B (active flag). Empty/missing col B is
+// treated as active so existing one-column rows keep working unchanged.
+function readStaffRows(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const values = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+  const seen = {};
+  const out = [];
+  for (let i = 0; i < values.length; i++) {
+    const name = String(values[i][0] || "").trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen[key]) continue;
+    seen[key] = true;
+    const rawB = values[i][1];
+    // Empty cell or anything non-FALSE counts as active (backward compat).
+    const active = !(rawB === false || String(rawB).toLowerCase() === "false" || String(rawB).toLowerCase() === "inactive");
+    out.push({ name: name, active: active, rowIdx: i + 2 });
+  }
+  return out;
+}
+
+// Ensure the Staff sheet exists and its header row covers Name + Active.
+function getOrCreateStaffSheet(ss) {
+  let sheet = ss.getSheetByName("Staff");
+  if (!sheet) {
+    sheet = ss.insertSheet("Staff", ss.getNumSheets());
+    sheet.getRange(1, 1, 1, 2).setValues([["Name", "Active"]]).setFontWeight("bold");
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+  // Backfill the Active header without touching existing names.
+  if (String(sheet.getRange(1, 2).getValue() || "") !== "Active") {
+    sheet.getRange(1, 2).setValue("Active").setFontWeight("bold");
+  }
+  return sheet;
+}
+
+// Public read path: only ACTIVE names, used by the entry form name dropdowns.
 function handleFetchStaff() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Staff");
   if (!sheet) return jsonResponse({ ok: true, staff: [] });
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return jsonResponse({ ok: true, staff: [] });
-
-  const values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  const seen = {};
-  const staff = [];
-  for (const row of values) {
-    const name = String(row[0] || "").trim();
-    const key = name.toLowerCase();
-    if (name && !seen[key]) { seen[key] = true; staff.push(name); }
-  }
+  const staff = readStaffRows(sheet).filter(function (s) { return s.active; }).map(function (s) { return s.name; });
   return jsonResponse({ ok: true, staff: staff });
+}
+
+// Admin-only: add a new staff member (active by default). Rejects duplicates.
+function handleAddStaff(payload) {
+  const storedPin = PropertiesService.getScriptProperties().getProperty("ADMIN_PIN");
+  if (!storedPin) return jsonResponse({ ok: false, error: "Admin access is not configured yet." });
+  if (typeof payload.pin !== "string" || payload.pin !== storedPin) {
+    Utilities.sleep(1000);
+    return jsonResponse({ ok: false, error: "Wrong PIN." });
+  }
+  const name = typeof payload.name === "string" ? payload.name.trim() : "";
+  if (!name) return jsonResponse({ ok: false, error: "Name is required" });
+  if (name.length > 40) return jsonResponse({ ok: false, error: "Name is too long (40 chars max)" });
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return jsonResponse({ ok: false, retryable: true, error: "Busy, try again." });
+  try {
+    const sheet = getOrCreateStaffSheet(ss);
+    const existing = readStaffRows(sheet);
+    const key = name.toLowerCase();
+    for (const s of existing) {
+      if (s.name.toLowerCase() === key) {
+        if (s.active) return jsonResponse({ ok: false, error: name + " is already on the roster." });
+        // Re-activate instead of inserting a duplicate row.
+        sheet.getRange(s.rowIdx, 2).setValue(true);
+        return jsonResponse({ ok: true, reactivated: true });
+      }
+    }
+    sheet.appendRow([safeText(name), true]);
+    return jsonResponse({ ok: true });
+  } catch (err) {
+    return jsonResponse({ ok: false, retryable: true, error: String(err && err.message || err) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Admin-only: toggle a staff member active/inactive.
+function handleSetStaffActive(payload) {
+  const storedPin = PropertiesService.getScriptProperties().getProperty("ADMIN_PIN");
+  if (!storedPin) return jsonResponse({ ok: false, error: "Admin access is not configured yet." });
+  if (typeof payload.pin !== "string" || payload.pin !== storedPin) {
+    Utilities.sleep(1000);
+    return jsonResponse({ ok: false, error: "Wrong PIN." });
+  }
+  const name = typeof payload.name === "string" ? payload.name.trim() : "";
+  if (!name) return jsonResponse({ ok: false, error: "Name is required" });
+  const active = !!payload.active;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return jsonResponse({ ok: false, retryable: true, error: "Busy, try again." });
+  try {
+    const sheet = getOrCreateStaffSheet(ss);
+    const rows = readStaffRows(sheet);
+    const key = name.toLowerCase();
+    for (const s of rows) {
+      if (s.name.toLowerCase() === key) {
+        sheet.getRange(s.rowIdx, 2).setValue(active);
+        return jsonResponse({ ok: true });
+      }
+    }
+    return jsonResponse({ ok: false, error: name + " is not on the roster." });
+  } catch (err) {
+    return jsonResponse({ ok: false, retryable: true, error: String(err && err.message || err) });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // Read path for the admin dashboard. PIN is checked against the ADMIN_PIN
@@ -141,7 +239,9 @@ function handleFetchData(payload) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheets()[0];
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return jsonResponse({ ok: true, rows: [] });
+  const staffSheet = ss.getSheetByName("Staff");
+  const staff = staffSheet ? readStaffRows(staffSheet).map(function (s) { return { name: s.name, active: s.active }; }) : [];
+  if (lastRow < 2) return jsonResponse({ ok: true, rows: [], staff: staff });
 
   const tz = ss.getSpreadsheetTimeZone();
   const asDateStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "yyyy-MM-dd") : String(v || "");
@@ -163,7 +263,7 @@ function handleFetchData(payload) {
     totalTips: Number(r[COL.TOTAL_TIPS - 1]) || 0,
     submissionId: String(r[COL.SUBMISSION_ID - 1] || ""),
   }));
-  return jsonResponse({ ok: true, rows: rows });
+  return jsonResponse({ ok: true, rows: rows, staff: staff });
 }
 
 // Read path for the staff verification page (today.html). Returns just
@@ -545,6 +645,12 @@ function doPost(e) {
   }
   if (payload && payload.action === "resolveRequest") {
     return handleResolveRequest(payload);
+  }
+  if (payload && payload.action === "addStaff") {
+    return handleAddStaff(payload);
+  }
+  if (payload && payload.action === "setStaffActive") {
+    return handleSetStaffActive(payload);
   }
 
   const validationError = validatePayload(payload);

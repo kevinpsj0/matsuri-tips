@@ -10,9 +10,11 @@ const fmt = (n) => money.format(n || 0);
 
 let sessionPin = "";
 let allRows = [];
+let staffList = []; // [{ name, active }] from handleFetchData
 let pendingRequests = [];
 let requestsLoadError = "";
 let resolvingRid = "";
+let staffBusy = false;
 let period = "today";
 let activeTab = "summary";
 let calMonth = null; // { y, m } 1-based month
@@ -99,7 +101,7 @@ async function tryPin(pin, silent) {
   if (data && data.ok) {
     sessionPin = pin;
     localStorage.setItem(PIN_KEY, pin);
-    allRows = data.rows || [];
+    allRows = data.rows || []; staffList = data.staff || [];
     gateEl.classList.add("hidden");
     appEl.classList.remove("hidden");
     render();
@@ -133,6 +135,42 @@ async function loadRequests() {
     if (pendingRequests.length) { b.textContent = pendingRequests.length; b.classList.add("show"); }
     else { b.textContent = ""; b.classList.remove("show"); }
   }
+}
+
+async function addStaff(name) {
+  if (staffBusy) return;
+  name = (name || "").trim();
+  if (!name) return;
+  staffBusy = true;
+  try {
+    const res = await fetch(ENDPOINT_URL, {
+      method: "POST", mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "addStaff", pin: sessionPin, name: name }),
+    });
+    const data = await res.json();
+    if (!data || !data.ok) { window.alert((data && data.error) || "Could not add."); return; }
+    await refresh();
+  } catch (e) {
+    window.alert("Network error. Try again.");
+  } finally { staffBusy = false; }
+}
+
+async function setStaffActive(name, active) {
+  if (staffBusy) return;
+  staffBusy = true;
+  try {
+    const res = await fetch(ENDPOINT_URL, {
+      method: "POST", mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "setStaffActive", pin: sessionPin, name: name, active: !!active }),
+    });
+    const data = await res.json();
+    if (!data || !data.ok) { window.alert((data && data.error) || "Could not update."); return; }
+    await refresh();
+  } catch (e) {
+    window.alert("Network error. Try again.");
+  } finally { staffBusy = false; }
 }
 
 async function resolveRequest(rid, resolution) {
@@ -170,7 +208,7 @@ async function refresh() {
   view.innerHTML = `<div class="loading">Loading...</div>`;
   try {
     const data = await fetchData(sessionPin);
-    if (data && data.ok) { allRows = data.rows || []; render(); return; }
+    if (data && data.ok) { allRows = data.rows || []; staffList = data.staff || []; render(); return; }
     if (data && data.error) { signOut(); return; }
   } catch (e) { /* keep existing data */ }
   render();
@@ -501,9 +539,41 @@ function renderShifts(rows) {
   return `<div>${shiftCardsHtml(rows)}</div>`;
 }
 
+function renderStaffManager() {
+  const sorted = staffList.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const active = sorted.filter((s) => s.active);
+  const inactive = sorted.filter((s) => !s.active);
+  const row = (s, label, action) => `<div class="staff-row${s.active ? "" : " inactive"}">
+    <span class="staff-name">${escapeHtml(s.name)}</span>
+    <button type="button" class="staff-btn" data-staff-action="${action}" data-staff-name="${escapeHtml(s.name)}">${label}</button>
+  </div>`;
+  const activeHtml = active.length
+    ? active.map((s) => row(s, "Inactivate", "inactivate")).join("")
+    : `<div class="staff-empty">No active staff yet. Add one above.</div>`;
+  const inactiveHtml = inactive.length
+    ? `<details class="staff-inactive"><summary>Inactive (${inactive.length})</summary>${inactive.map((s) => row(s, "Reactivate", "activate")).join("")}</details>`
+    : "";
+  return `<div class="panel staff-panel">
+    <h2>Manage staff</h2>
+    <div class="staff-add">
+      <input type="text" id="staff-add-input" placeholder="Add server name" maxlength="40" autocomplete="off" />
+      <button type="button" id="staff-add-btn">Add</button>
+    </div>
+    <div class="staff-list">${activeHtml}</div>
+    ${inactiveHtml}
+  </div>`;
+}
+
 function renderPeople(rows) {
-  const people = rows.filter((r) => r.role === "Server" || r.role === "Trainee");
-  if (!people.length) return emptyState("No staff in this period.");
+  const manager = renderStaffManager();
+  const activeSet = new Set(staffList.filter((s) => s.active).map((s) => s.name.toLowerCase()));
+  const people = rows.filter((r) =>
+    (r.role === "Server" || r.role === "Trainee") &&
+    activeSet.has((r.recipient || "").trim().toLowerCase())
+  );
+  if (!people.length) {
+    return manager + emptyState(activeSet.size ? "No earnings yet for active staff in this period." : "Add staff above to start tracking earnings.");
+  }
   const agg = {}; // key -> { total, hours, shifts:Set, names: {display: count}, traineePct }
   for (const r of people) {
     const name = (r.recipient || "").trim();
@@ -532,7 +602,7 @@ function renderPeople(rows) {
       <div class="lb-meta">${p.shifts} shift${p.shifts === 1 ? "" : "s"} · ${p.hours.toFixed(1)}h · ${rate}</div>
     </div>`;
   }).join("");
-  return `<div class="panel"><h2>Earnings by person</h2>${body}</div>`;
+  return manager + `<div class="panel"><h2>Earnings by person</h2>${body}</div>`;
 }
 
 function emptyState(msg) { return `<div class="empty-state">${escapeHtml(msg)}</div>`; }
@@ -582,6 +652,27 @@ function wireEvents() {
     if (dlbar && dlbar.dataset.sid) { openShiftModal(dlbar.dataset.sid); return; }
     const resolveBtn = e.target.closest("[data-resolve]");
     if (resolveBtn && resolveBtn.dataset.rid) { resolveRequest(resolveBtn.dataset.rid, resolveBtn.dataset.resolve); return; }
+    if (e.target.closest("#staff-add-btn")) {
+      const input = document.getElementById("staff-add-input");
+      const name = input ? input.value.trim() : "";
+      if (name) addStaff(name);
+      return;
+    }
+    const staffBtn = e.target.closest("[data-staff-action]");
+    if (staffBtn && staffBtn.dataset.staffName) {
+      const action = staffBtn.dataset.staffAction;
+      const name = staffBtn.dataset.staffName;
+      if (action === "inactivate" && !window.confirm(`Inactivate ${name}? They will be hidden from the entry form and leaderboard.`)) return;
+      setStaffActive(name, action === "activate");
+      return;
+    }
+  });
+  // Submit add-staff on Enter in the input.
+  document.getElementById("view").addEventListener("keydown", (e) => {
+    if (e.target && e.target.id === "staff-add-input" && e.key === "Enter") {
+      const name = e.target.value.trim();
+      if (name) addStaff(name);
+    }
   });
 
   const modal = document.getElementById("shift-modal");
