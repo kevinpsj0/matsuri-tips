@@ -129,6 +129,9 @@
   .cal-cell .d { font-size: .72rem; color: var(--muted); }
   .cal-cell .amt { font-size: .66rem; font-weight: 700; color: var(--indigo); position: absolute; left: .25rem; right: .25rem; bottom: .2rem; }
   .cal-cell.today { outline: 2px solid var(--gold); }
+  .cal-cell[data-day] { cursor: pointer; }
+  .cal-cell[data-day]:active { outline: 2px solid var(--indigo-soft); }
+  .cal-spacer { width: 5rem; }
 
   /* Shifts list */
   .shift { border: 1px solid var(--line); border-radius: 10px; padding: .75rem .85rem; margin-bottom: .6rem; }

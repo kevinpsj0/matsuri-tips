@@ -13,6 +13,7 @@ let allRows = [];
 let period = "today";
 let activeTab = "summary";
 let calMonth = null; // { y, m } 1-based month
+let calDay = null;   // ISO date when drilled into a single day, else null
 
 // ---- date helpers (operate on yyyy-mm-dd strings; ISO sorts lexically) ----
 function todayISO() {
@@ -136,7 +137,7 @@ function render() {
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === activeTab));
 
   const view = document.getElementById("view");
-  if (onCal) { view.innerHTML = renderCalendar(); wireCalendar(); return; }
+  if (onCal) { view.innerHTML = calDay ? renderCalDayDetail(calDay) : renderCalendar(); return; }
 
   const { start, end } = currentRange();
   const rows = rowsInRange(start, end);
@@ -228,7 +229,7 @@ function renderCalendar() {
     const bg = amt > 0 ? `style="background: rgba(214,160,76, ${alpha})"` : "";
     const todayCls = iso === today ? " today" : "";
     const amtTxt = amt > 0 ? `<div class="amt">${amt >= 1000 ? "$" + (amt / 1000).toFixed(1).replace(/\.0$/, "") + "k" : fmt(amt).replace(".00", "")}</div>` : "";
-    cells += `<div class="cal-cell${todayCls}" ${bg}><div class="d">${d}</div>${amtTxt}</div>`;
+    cells += `<div class="cal-cell${todayCls}" data-day="${iso}"${bg ? " " + bg : ""}><div class="d">${d}</div>${amtTxt}</div>`;
   }
   return `<div class="panel">
     <div class="cal-head">
@@ -240,15 +241,19 @@ function renderCalendar() {
   </div>`;
 }
 
-function wireCalendar() {
-  const prev = document.getElementById("cal-prev");
-  const next = document.getElementById("cal-next");
-  if (prev) prev.addEventListener("click", () => { calMonth.m--; if (calMonth.m < 1) { calMonth.m = 12; calMonth.y--; } render(); });
-  if (next) next.addEventListener("click", () => { calMonth.m++; if (calMonth.m > 12) { calMonth.m = 1; calMonth.y++; } render(); });
+function renderCalDayDetail(iso) {
+  const { y, m, d } = isoParts(iso);
+  const title = new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  const rows = allRows.filter((r) => r.date === iso);
+  const body = rows.length ? shiftCardsHtml(rows) : `<div class="empty-state">No shifts on this day.</div>`;
+  return `<div class="cal-head">
+      <button type="button" data-cal-back>&lsaquo; Calendar</button>
+      <span class="m">${escapeHtml(title)}</span>
+      <span class="cal-spacer"></span>
+    </div>${body}`;
 }
 
-function renderShifts(rows) {
-  if (!rows.length) return emptyState("No shifts in this period.");
+function shiftCardsHtml(rows) {
   const shifts = {};
   for (const r of rows) {
     const id = r.submissionId || (r.date + r.time);
@@ -257,7 +262,7 @@ function renderShifts(rows) {
   }
   const roleOrder = { Server: 0, Trainee: 1, Kitchen: 2, Chefs: 3 };
   const list = Object.values(shifts).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
-  const items = list.map((sh) => {
+  return list.map((sh) => {
     const recips = sh.recipients.slice().sort((a, b) => (roleOrder[a.role] || 0) - (roleOrder[b.role] || 0));
     const lines = recips.map((r) => {
       let label = (r.role === "Kitchen" || r.role === "Chefs") ? r.role : escapeHtml(r.recipient || "?");
@@ -274,7 +279,11 @@ function renderShifts(rows) {
       <div class="lines">${lines}</div>
     </div>`;
   }).join("");
-  return `<div>${items}</div>`;
+}
+
+function renderShifts(rows) {
+  if (!rows.length) return emptyState("No shifts in this period.");
+  return `<div>${shiftCardsHtml(rows)}</div>`;
 }
 
 function renderPeople(rows) {
@@ -333,7 +342,17 @@ function wireEvents() {
     const btn = e.target.closest("button[data-tab]");
     if (!btn) return;
     activeTab = btn.dataset.tab;
+    calDay = null;
     render();
+  });
+
+  // Calendar interactions are delegated on the (persistent) #view container.
+  document.getElementById("view").addEventListener("click", (e) => {
+    if (e.target.closest("#cal-prev")) { calMonth.m--; if (calMonth.m < 1) { calMonth.m = 12; calMonth.y--; } render(); return; }
+    if (e.target.closest("#cal-next")) { calMonth.m++; if (calMonth.m > 12) { calMonth.m = 1; calMonth.y++; } render(); return; }
+    if (e.target.closest("[data-cal-back]")) { calDay = null; render(); return; }
+    const cell = e.target.closest(".cal-cell[data-day]");
+    if (cell) { calDay = cell.getAttribute("data-day"); render(); return; }
   });
 }
 
