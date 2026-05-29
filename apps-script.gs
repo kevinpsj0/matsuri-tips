@@ -11,6 +11,10 @@ const COL = {
 };
 const NUM_COLS = COL.SUBMISSION_ID;
 
+// Alternating row shades so each shift's block of rows is visually distinct.
+// Index 0 (white) and index 1 (light gray) flip from one shift to the next.
+const SHIFT_SHADES = ["#ffffff", "#f0f0f0"];
+
 // MUST match calc.js (minutesWorked / splitShift).
 function minutesWorked(timeIn, timeOut) {
   const ip = timeIn.split(":");
@@ -326,7 +330,13 @@ function doPost(e) {
     rowsToWrite.push(chefsRow);
 
     const startRow = sheet.getLastRow() + 1;
-    sheet.getRange(startRow, 1, rowsToWrite.length, NUM_COLS).setValues(rowsToWrite);
+    const range = sheet.getRange(startRow, 1, rowsToWrite.length, NUM_COLS);
+    range.setValues(rowsToWrite);
+
+    // Shade this shift the opposite of the shift above it, so blocks alternate.
+    const prevShade = startRow > 2 ? sheet.getRange(startRow - 1, 1).getBackground() : "";
+    const newShade = prevShade.toLowerCase() === SHIFT_SHADES[1] ? SHIFT_SHADES[0] : SHIFT_SHADES[1];
+    range.setBackground(newShade);
 
     return jsonResponse({ ok: true, dedup: false, splits: splits });
   } catch (err) {
@@ -353,6 +363,28 @@ function setupSheet() {
   sheet.setFrozenRows(1);
   sheet.getRange("J:J").setNumberFormat("$#,##0.00"); // Amount $
   sheet.getRange("K:K").setNumberFormat("$#,##0.00"); // Total tips
+}
+
+// One-time helper: recolors every existing shift in the ledger so the blocks
+// alternate white / light gray (grouped by Submission ID). Run once from the
+// Apps Script editor; new shifts entered after this are shaded automatically.
+function recolorShifts() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheets()[0];
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  const numRows = lastRow - 1;
+  const ids = sheet.getRange(2, COL.SUBMISSION_ID, numRows, 1).getValues();
+  const backgrounds = [];
+  let prevId = null;
+  let shadeIndex = 1; // first shift flips this to 0 (white)
+  for (let i = 0; i < numRows; i++) {
+    const id = String(ids[i][0] || "");
+    if (id !== prevId) { shadeIndex = (shadeIndex + 1) % 2; prevId = id; }
+    backgrounds.push(new Array(NUM_COLS).fill(SHIFT_SHADES[shadeIndex]));
+  }
+  sheet.getRange(2, 1, numRows, NUM_COLS).setBackgrounds(backgrounds);
 }
 
 // One-time helper: creates the "Staff" tab that feeds the entry form's name
