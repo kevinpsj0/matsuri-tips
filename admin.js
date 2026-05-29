@@ -148,6 +148,7 @@ function render() {
   document.getElementById("range-label").textContent = `${label} · ${shiftCount} shift${shiftCount === 1 ? "" : "s"}`;
 
   if (activeTab === "summary") view.innerHTML = renderSummary(rows, start, end);
+  else if (activeTab === "tips") view.innerHTML = renderTips(rows);
   else if (activeTab === "shifts") view.innerHTML = renderShifts(rows);
   else if (activeTab === "people") view.innerHTML = renderPeople(rows);
 }
@@ -369,6 +370,29 @@ function shiftCardsHtml(rows) {
 function renderShifts(rows) {
   if (!rows.length) return emptyState("No shifts in this period.");
   return `<div>${shiftCardsHtml(rows)}</div>`;
+}
+
+function renderTips(rows) {
+  if (!rows.length) return emptyState("No shifts in this period.");
+  const byDate = {};
+  for (const r of rows) byDate[r.date] = (byDate[r.date] || 0) + r.amount;
+  const sum = [0, 0, 0, 0, 0, 0, 0], cnt = [0, 0, 0, 0, 0, 0, 0];
+  for (const date in byDate) {
+    const wd = isoWeekday(date);
+    sum[wd] += byDate[date];
+    cnt[wd] += 1;
+  }
+  const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const order = [1, 2, 3, 4, 5, 6, 0]; // Mon..Sun
+  const items = order.map((wd) => ({ label: names[wd], avg: cnt[wd] ? sum[wd] / cnt[wd] : 0, days: cnt[wd] }));
+  const max = Math.max(1, ...items.map((a) => a.avg));
+  const bars = items.map((a) => {
+    const w = a.avg > 0 ? Math.max(2, a.avg / max * 100) : 0;
+    const bar = w ? `<div class="wk-bar" style="width:${w.toFixed(1)}%"></div>` : "";
+    const title = a.days ? `averaged over ${a.days} day${a.days === 1 ? "" : "s"}` : "no shifts";
+    return `<div class="wk-row" title="${title}"><span class="wk-label">${a.label}</span><div class="wk-track">${bar}</div><span class="wk-amt">${fmt(a.avg)}</span></div>`;
+  }).join("");
+  return `<div class="panel"><h2>Average tips by weekday</h2><div class="wk-rows">${bars}</div></div>`;
 }
 
 function renderPeople(rows) {
