@@ -184,7 +184,10 @@
   .req-when { font-size: .85rem; color: var(--muted); }
   .req-actions { display: flex; gap: .4rem; }
   .req-note { background: #fff8e6; border: 1px solid #f0d77c; border-radius: 6px; padding: .5rem .6rem; margin: .55rem 0; font-size: .88rem; color: #604c00; white-space: pre-wrap; }
+  .req-load-err { background: #fff0f0; border: 1px solid #f0b7b7; border-radius: 6px; padding: .5rem .6rem; margin-bottom: .8rem; font-size: .85rem; color: #8b1a1a; }
   .req-diff { display: flex; flex-direction: column; gap: .8rem; margin-top: .55rem; }
+  .diff-col { min-width: 0; }
+  @media (min-width: 560px) { .req-diff { flex-direction: row; } .diff-col { flex: 1; } }
   .diff-col .diff-label { font-size: .78rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: .25rem; }
   .btn-approve { background: var(--indigo); color: #fff; border: 0; padding: .45rem .85rem; border-radius: 999px; font-size: .85rem; font-weight: 600; cursor: pointer; }
   .btn-deny { background: #fff; color: #b00; border: 1px solid #b00; padding: .45rem .85rem; border-radius: 999px; font-size: .85rem; font-weight: 600; cursor: pointer; }

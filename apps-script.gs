@@ -234,19 +234,32 @@ const EDIT_REQ_HEADER = [
   "Resolved at", "Resolved by",
 ];
 
+// Defuse Sheets formula injection: prefix with a single quote so the cell
+// renders as plain text instead of being evaluated as a formula.
+function safeText(s) {
+  const str = String(s == null ? "" : s);
+  return /^[=+\-@\t\r]/.test(str) ? "'" + str : str;
+}
+
 function getOrCreateRequestsSheet(ss) {
   let sheet = ss.getSheetByName("Edit requests");
   if (!sheet) {
     sheet = ss.insertSheet("Edit requests", ss.getNumSheets()); // append; keep ledger at index 0
     sheet.getRange(1, 1, 1, EDIT_REQ_HEADER.length).setValues([EDIT_REQ_HEADER]).setFontWeight("bold");
     sheet.setFrozenRows(1);
-  } else if (String(sheet.getRange(1, 1).getValue()) !== EDIT_REQ_HEADER[0]) {
-    // Old (pre-v2) schema or empty; reset header. Any existing rows are discarded.
-    sheet.clear();
+    return sheet;
+  }
+  const a1 = String(sheet.getRange(1, 1).getValue() || "");
+  if (a1 === EDIT_REQ_HEADER[0]) return sheet;
+  // Only auto-initialize when the sheet is truly empty (no header, no rows).
+  // If A1 differs but the sheet has data, surface an error rather than wiping
+  // pending requests — manual migration is safer than silent data loss.
+  if (a1 === "" && sheet.getLastRow() <= 1) {
     sheet.getRange(1, 1, 1, EDIT_REQ_HEADER.length).setValues([EDIT_REQ_HEADER]).setFontWeight("bold");
     sheet.setFrozenRows(1);
+    return sheet;
   }
-  return sheet;
+  throw new Error('"Edit requests" tab header is not "Request ID". Migrate manually before submitting new requests.');
 }
 
 // Write path for the staff verification page: logs a request-to-edit (with the
@@ -281,9 +294,25 @@ function handleRequestEdit(payload) {
       }
     }
   }
+  // Re-build proposed from only the validated fields so an oversized or
+  // adversarial payload can't bloat the JSON cell or smuggle extra keys.
+  const cleanProposed = {
+    enteredBy: String(payload.proposed.enteredBy).trim(),
+    totalTips: Number(payload.proposed.totalTips),
+    people: payload.proposed.people.map(function (p) {
+      const trainee = !!p.trainee;
+      return {
+        name: String(p.name).trim(),
+        timeIn: String(p.timeIn),
+        timeOut: String(p.timeOut),
+        trainee: trainee,
+        pct: trainee ? Number(p.pct) : null,
+      };
+    }),
+  };
   const reqId = "er-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
   const now = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm");
-  sheet.appendRow([reqId, now, by, sid, shiftDate, shiftTime, "Pending", note, JSON.stringify(payload.proposed), "", ""]);
+  sheet.appendRow([reqId, now, safeText(by), sid, shiftDate, shiftTime, "Pending", safeText(note), JSON.stringify(cleanProposed), "", ""]);
   return jsonResponse({ ok: true, requestId: reqId });
 }
 
@@ -301,6 +330,11 @@ function handleListRequests(payload) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return jsonResponse({ ok: true, requests: [] });
 
+  const tz = ss.getSpreadsheetTimeZone();
+  const asDateStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "yyyy-MM-dd") : String(v || "");
+  const asTimeStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "HH:mm") : String(v || "");
+  const asStampStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "yyyy-MM-dd HH:mm") : String(v || "");
+
   const data = sheet.getRange(2, 1, lastRow - 1, EDIT_REQ_HEADER.length).getValues();
   const requests = [];
   for (const r of data) {
@@ -310,11 +344,11 @@ function handleListRequests(payload) {
     try { proposed = JSON.parse(String(r[8] || "{}")); } catch (e) {}
     requests.push({
       id: String(r[0] || ""),
-      requestedAt: String(r[1] || ""),
+      requestedAt: asStampStr(r[1]),
       requestedBy: String(r[2] || ""),
       submissionId: String(r[3] || ""),
-      shiftDate: String(r[4] || ""),
-      shiftTime: String(r[5] || ""),
+      shiftDate: asDateStr(r[4]),
+      shiftTime: asTimeStr(r[5]),
       status: status,
       note: String(r[7] || ""),
       proposed: proposed,
@@ -355,8 +389,13 @@ function handleResolveRequest(payload) {
     if (String(row[6] || "") !== "Pending") return jsonResponse({ ok: false, error: "Request already resolved" });
 
     const tz = ss.getSpreadsheetTimeZone();
+    // Rollback bookkeeping for the approve path; consulted in the status-write
+    // catch below so we can put the ledger back if marking the request fails.
+    let ledger = null, sid = "";
+    let ledgerWritten = false, ledgerSavedRows = null;
+    let approvedRowStart = -1, approvedRowCount = 0;
     if (resolution === "approve") {
-      const sid = String(row[3] || "");
+      sid = String(row[3] || "");
       let proposed;
       try { proposed = JSON.parse(String(row[8] || "")); } catch (e) {
         return jsonResponse({ ok: false, error: "Stored proposal is invalid" });
@@ -364,7 +403,7 @@ function handleResolveRequest(payload) {
       const validation = validateShiftFields(proposed);
       if (validation) return jsonResponse({ ok: false, error: "Proposal invalid: " + validation });
 
-      const ledger = ss.getSheets()[0];
+      ledger = ss.getSheets()[0];
       const lastL = ledger.getLastRow();
       if (lastL < 2) return jsonResponse({ ok: false, error: "Shift not found in ledger" });
       const ldata = ledger.getRange(2, 1, lastL - 1, NUM_COLS).getValues();
@@ -383,7 +422,7 @@ function handleResolveRequest(payload) {
       if (!targetRowIdxs.length) return jsonResponse({ ok: false, error: "Shift not found in ledger" });
 
       const splits = splitShift(proposed);
-      const enteredBy = proposed.enteredBy.trim();
+      const enteredBy = safeText(String(proposed.enteredBy).trim());
       const newRows = [];
       function baseRow() {
         const r = new Array(NUM_COLS).fill("");
@@ -398,7 +437,7 @@ function handleResolveRequest(payload) {
         const sp = splits.people[i];
         const pp = proposed.people[i];
         const r = baseRow();
-        r[COL.RECIPIENT - 1] = pp.name.trim();
+        r[COL.RECIPIENT - 1] = safeText(String(pp.name).trim());
         r[COL.ROLE - 1] = sp.trainee ? "Trainee" : "Server";
         r[COL.TRAINEE_PCT - 1] = sp.trainee ? sp.pct : "";
         r[COL.TIME_IN - 1] = pp.timeIn;
@@ -415,27 +454,64 @@ function handleResolveRequest(payload) {
       newRows.push(c);
 
       // Save the originals so we can restore the ledger if writing new rows fails.
-      const savedRows = targetRowIdxs.map(function (r) { return ldata[r - 2]; });
+      ledgerSavedRows = targetRowIdxs.map(function (r) { return ldata[r - 2]; });
       // Delete old rows in descending order so indices stay valid, then append new ones.
       targetRowIdxs.sort(function (a, b) { return b - a; });
       for (const r of targetRowIdxs) ledger.deleteRow(r);
       try {
-        const startRow = ledger.getLastRow() + 1;
-        ledger.getRange(startRow, 1, newRows.length, NUM_COLS).setValues(newRows);
+        approvedRowStart = ledger.getLastRow() + 1;
+        approvedRowCount = newRows.length;
+        ledger.getRange(approvedRowStart, 1, newRows.length, NUM_COLS).setValues(newRows);
       } catch (writeErr) {
-        // Put the originals back so the shift isn't lost.
-        const restoreStart = ledger.getLastRow() + 1;
-        ledger.getRange(restoreStart, 1, savedRows.length, NUM_COLS).setValues(savedRows);
-        throw writeErr;
+        approvedRowStart = -1; approvedRowCount = 0; // write didn't land
+        // Try to put the originals back so the shift isn't lost.
+        try {
+          const restoreStart = ledger.getLastRow() + 1;
+          ledger.getRange(restoreStart, 1, ledgerSavedRows.length, NUM_COLS).setValues(ledgerSavedRows);
+          throw writeErr; // write failed but restore succeeded — safe to retry
+        } catch (restoreErr) {
+          // Both write and restore failed: data is gone, retrying will just say "not found".
+          return jsonResponse({
+            ok: false,
+            retryable: false,
+            error: "CRITICAL: ledger write and restore both failed for " + sid + ". The shift rows must be re-entered manually.",
+          });
+        }
       }
-      // Re-apply alternating shift shading across the ledger.
-      recolorShifts();
+      ledgerWritten = true;
     }
 
+    // Mark the request resolved BEFORE the cosmetic recolor step so a recolor
+    // failure can't leave the ledger updated but the request stuck "Pending".
     const nowStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm");
-    reqSheet.getRange(rowIdx, 7).setValue(resolution === "approve" ? "Approved" : "Denied");
-    reqSheet.getRange(rowIdx, 10).setValue(nowStr);
-    reqSheet.getRange(rowIdx, 11).setValue("admin");
+    try {
+      reqSheet.getRange(rowIdx, 7).setValue(resolution === "approve" ? "Approved" : "Denied");
+      reqSheet.getRange(rowIdx, 10).setValue(nowStr);
+      reqSheet.getRange(rowIdx, 11).setValue("admin");
+    } catch (statusErr) {
+      // Ledger has already been updated but the request is still "Pending".
+      // If we leave it, an admin retry would re-apply the same changes (or
+      // a Deny could mark Denied while the ledger holds the approved data).
+      // Attempt to roll the ledger back so the request can be safely retried.
+      if (ledgerWritten && approvedRowCount > 0 && ledgerSavedRows) {
+        try {
+          for (let i = 0; i < approvedRowCount; i++) ledger.deleteRow(approvedRowStart);
+          const restoreStart = ledger.getLastRow() + 1;
+          ledger.getRange(restoreStart, 1, ledgerSavedRows.length, NUM_COLS).setValues(ledgerSavedRows);
+          throw statusErr; // ledger rolled back; outer catch will return retryable
+        } catch (rollbackErr) {
+          return jsonResponse({
+            ok: false,
+            retryable: false,
+            error: "CRITICAL: status write and ledger rollback both failed for " + sid + ". Manually mark the request resolved and verify the ledger.",
+          });
+        }
+      }
+      throw statusErr;
+    }
+    if (resolution === "approve") {
+      try { recolorShifts(); } catch (e) { /* shading is cosmetic; don't fail the approval */ }
+    }
     return jsonResponse({ ok: true });
   } catch (err) {
     return jsonResponse({ ok: false, retryable: true, error: String(err && err.message || err) });

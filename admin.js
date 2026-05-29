@@ -11,6 +11,8 @@ const fmt = (n) => money.format(n || 0);
 let sessionPin = "";
 let allRows = [];
 let pendingRequests = [];
+let requestsLoadError = "";
+let resolvingRid = "";
 let period = "today";
 let activeTab = "summary";
 let calMonth = null; // { y, m } 1-based month
@@ -117,8 +119,15 @@ async function loadRequests() {
       body: JSON.stringify({ action: "listRequests", pin: sessionPin }),
     });
     const data = await res.json();
-    pendingRequests = (data && data.ok) ? (data.requests || []) : [];
-  } catch (e) { pendingRequests = []; }
+    if (data && data.ok) {
+      pendingRequests = data.requests || [];
+      requestsLoadError = "";
+    } else {
+      requestsLoadError = (data && data.error) || "Could not load requests.";
+    }
+  } catch (e) {
+    requestsLoadError = "Could not reach the server. Pending list may be out of date.";
+  }
   const b = document.getElementById("req-badge");
   if (b) {
     if (pendingRequests.length) { b.textContent = pendingRequests.length; b.classList.add("show"); }
@@ -127,8 +136,12 @@ async function loadRequests() {
 }
 
 async function resolveRequest(rid, resolution) {
+  if (resolvingRid) return; // ignore double-clicks while a resolve is in flight
   const verb = resolution === "approve" ? "Approve and apply changes to the ledger?" : "Deny this request?";
   if (!window.confirm(verb)) return;
+  resolvingRid = rid;
+  // Disable any approve/deny buttons for this rid so a second tap can't fire.
+  document.querySelectorAll(`[data-resolve][data-rid="${rid}"]`).forEach((b) => { b.disabled = true; });
   try {
     const res = await fetch(ENDPOINT_URL, {
       method: "POST", mode: "cors",
@@ -145,6 +158,8 @@ async function resolveRequest(rid, resolution) {
     }
   } catch (e) {
     window.alert("Network error. Try again.");
+  } finally {
+    resolvingRid = "";
   }
 }
 
@@ -305,8 +320,13 @@ function synthesizePropRows(req) {
 }
 
 function renderRequests() {
-  if (!pendingRequests.length) return emptyState("No pending edit requests.");
-  return pendingRequests.map((req) => {
+  const errBanner = requestsLoadError
+    ? `<div class="req-load-err">${escapeHtml(requestsLoadError)}</div>`
+    : "";
+  if (!pendingRequests.length) {
+    return errBanner + emptyState(requestsLoadError ? "Pending list could not be loaded." : "No pending edit requests.");
+  }
+  return errBanner + pendingRequests.map((req) => {
     const original = allRows.filter((r) => r.submissionId === req.submissionId);
     const proposed = synthesizePropRows(req);
     const noteHtml = req.note ? `<div class="req-note">${escapeHtml(req.note)}</div>` : "";
