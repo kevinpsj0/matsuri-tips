@@ -335,18 +335,20 @@ function renderSwitchUser() {
 
 function applyRememberedName() {
   const me = getMe();
-  if (!me) { renderSwitchUser(); return; }
-  enteredByEl.value = me;
-  const firstName = peopleContainer.querySelector(".person .p-name");
-  if (firstName && !firstName.value) firstName.value = me;
+  if (me) {
+    enteredByEl.value = me;
+    const firstName = peopleContainer.querySelector(".person .p-name");
+    if (firstName && !firstName.value) firstName.value = me;
+  }
   renderSwitchUser();
 }
 
 switchUserBtn.addEventListener("click", () => {
+  const oldMe = getMe();
   setMe("");
-  enteredByEl.value = "";
+  if (enteredByEl.value.trim() === oldMe) enteredByEl.value = "";
   const firstName = peopleContainer.querySelector(".person .p-name");
-  if (firstName) firstName.value = "";
+  if (firstName && firstName.value.trim() === oldMe) firstName.value = "";
   renderSwitchUser();
   updatePreview();
   enteredByEl.focus();
