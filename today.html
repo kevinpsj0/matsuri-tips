@@ -127,6 +127,9 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 function fmt(n) { return "$" + (n || 0).toFixed(2); }
+const ME_KEY = "matsuri_me";
+function getMe() { try { return localStorage.getItem(ME_KEY) || ""; } catch (e) { return ""; } }
+function setMe(name) { try { name ? localStorage.setItem(ME_KEY, name) : localStorage.removeItem(ME_KEY); } catch (e) {} }
 
 const content = document.getElementById("content");
 const refreshBtn = document.getElementById("refresh-btn");
@@ -277,7 +280,7 @@ content.addEventListener("click", (e) => {
   }
   currentSid = sid;
   editSub.textContent = `Shift ${sh.date} ${sh.time} · ${fmt(sh.totalTips)}. The owner will review.`;
-  reqName.value = "";
+  reqName.value = getMe();
   reqNote.value = "";
   reqErr.textContent = "";
   editBy.value = sh.enteredBy || "";
@@ -329,6 +332,7 @@ reqSend.addEventListener("click", async () => {
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || "send failed");
+    setMe(name);
     modal.classList.add("hidden");
     showToast("Edit request sent to the owner.");
   } catch (err) {
