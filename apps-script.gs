@@ -54,6 +54,20 @@ function getSlotByLabel(shiftType, label) {
   return null;
 }
 
+// Returns the first display name that appears more than once (case-insensitive,
+// trimmed), or null if all are unique. Empty/whitespace names are ignored.
+function firstDuplicateName(names) {
+  var seen = {};
+  for (var i = 0; i < names.length; i++) {
+    var raw = names[i] == null ? "" : String(names[i]).trim();
+    if (!raw) continue;
+    var k = raw.toLowerCase();
+    if (seen[k]) return raw;
+    seen[k] = true;
+  }
+  return null;
+}
+
 function minutesWorked(timeIn, timeOut) {
   var ip = timeIn.split(":");
   var op = timeOut.split(":");
@@ -401,15 +415,15 @@ function validateShiftFields(p) {
     if (!getSlot(p.shiftType, s.slot)) return "Invalid time slot for " + (s.name || "server");
     if (s.trainee && s.pct !== 25 && s.pct !== 50 && s.pct !== 75) return "Trainee level must be 25, 50, or 75";
   }
+  const dupServer = firstDuplicateName(p.servers.map(function (s) { return s.name; }));
+  if (dupServer) return "Two servers have the same name: " + dupServer + ". Please use different names.";
   if (!Array.isArray(p.chefs) || p.chefs.length > 6) return "chefs must have 0-6 entries";
-  const seen = {};
   for (const c of p.chefs) {
     if (!c || typeof c !== "object") return "Invalid chef";
     if (typeof c.name !== "string" || !c.name.trim() || c.name.length > 40) return "Invalid chef name";
-    const k = c.name.trim().toLowerCase();
-    if (seen[k]) return "Duplicate chef: " + c.name.trim();
-    seen[k] = true;
   }
+  const dupChef = firstDuplicateName(p.chefs.map(function (c) { return c.name; }));
+  if (dupChef) return "Duplicate chef: " + dupChef;
   return null;
 }
 
@@ -618,6 +632,16 @@ function handleResolveRequest(payload) {
 
       const splits = splitShift(proposed);
       const shiftLabel = proposed.shiftType === "lunch" ? "Lunch" : "Dinner";
+      // Guard: an approved edit must not create a second shift of the same type
+      // on the same day (e.g. editing a lunch into a dinner that already exists).
+      for (let i = 0; i < ldata.length; i++) {
+        if (ldata[i][COL.SUBMISSION_ID - 1] === sid) continue;
+        const d2 = ldata[i][COL.DATE - 1];
+        const ds2 = (d2 instanceof Date) ? Utilities.formatDate(d2, tz, "yyyy-MM-dd") : String(d2 || "");
+        if (ds2 === preservedDate && String(ldata[i][COL.SHIFT - 1] || "") === shiftLabel) {
+          return jsonResponse({ ok: false, retryable: false, error: "Approving this would create a second " + shiftLabel + " shift for " + preservedDate + "." });
+        }
+      }
       const enteredBy = safeText(String(proposed.enteredBy).trim());
       const newRows = [];
       function baseRow() {
@@ -757,6 +781,20 @@ function handleResolveRequest(payload) {
   }
 }
 
+// True if the ledger already has a row for this calendar date (restaurant tz)
+// and shift label ("Lunch"/"Dinner"). Date cells may be strings or Date values.
+function shiftExistsForDay(sheet, dateStr, shiftLabel, tz) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return false;
+  const vals = sheet.getRange(2, 1, lastRow - 1, NUM_COLS).getValues();
+  for (const r of vals) {
+    const d = r[COL.DATE - 1];
+    const ds = (d instanceof Date) ? Utilities.formatDate(d, tz, "yyyy-MM-dd") : String(d || "");
+    if (ds === dateStr && String(r[COL.SHIFT - 1] || "") === shiftLabel) return true;
+  }
+  return false;
+}
+
 function doPost(e) {
   let payload;
   try {
@@ -816,6 +854,11 @@ function doPost(e) {
     const dateStr = Utilities.formatDate(now, tz, "yyyy-MM-dd");
     const timeStr = Utilities.formatDate(now, tz, "HH:mm");
     const shiftLabel = payload.shiftType === "lunch" ? "Lunch" : "Dinner";
+    // One Lunch + one Dinner per day. Runs inside the script lock, so two
+    // simultaneous submissions of the same shift can't both get through.
+    if (shiftExistsForDay(sheet, dateStr, shiftLabel, tz)) {
+      return jsonResponse({ ok: false, retryable: false, error: "Today's " + payload.shiftType + " shift was already entered. Open 'View today's shifts' to edit it." });
+    }
     const enteredBy = payload.enteredBy.trim();
 
     function baseRow() {
