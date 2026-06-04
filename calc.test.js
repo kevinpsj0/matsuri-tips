@@ -1,7 +1,7 @@
 // calc.test.js — run with: node calc.test.js
 // Tests the pure core in calc.js (Node export). Browser mirror lives in test.html.
 const assert = require("assert");
-const { splitShift, minutesWorked, getSlot, findSlotByTimes, SHIFT_SLOTS } = require("./calc.js");
+const { splitShift, minutesWorked, getSlot, findSlotByTimes, SHIFT_SLOTS, firstDuplicateName } = require("./calc.js");
 
 let pass = 0, fail = 0;
 function test(name, fn) {
@@ -106,6 +106,30 @@ test("slot helpers: getSlot + findSlotByTimes round-trip", () => {
   assert.strictEqual(getSlot("dinner", "NOPE"), null);
   assert.strictEqual(findSlotByTimes("dinner", "16:30", "21:30").id, "D1630");
   assert.strictEqual(findSlotByTimes("lunch", "00:00", "01:00"), null);
+});
+
+test("firstDuplicateName: all unique -> null", () => {
+  assert.strictEqual(firstDuplicateName(["Eve", "Fay", "Cho"]), null);
+});
+
+test("firstDuplicateName: case-insensitive dup returns the display name", () => {
+  assert.strictEqual(firstDuplicateName(["Eve", "eve"]), "eve");
+});
+
+test("firstDuplicateName: trims whitespace before comparing", () => {
+  assert.strictEqual(firstDuplicateName([" Eve ", "eve"]), "eve");
+});
+
+test("firstDuplicateName: ignores empty/whitespace-only names", () => {
+  assert.strictEqual(firstDuplicateName(["", "  ", "Eve"]), null);
+});
+
+test("firstDuplicateName: returns the first repeated name when several repeat", () => {
+  assert.strictEqual(firstDuplicateName(["A", "B", "A", "B"]), "A");
+});
+
+test("firstDuplicateName: empty list -> null", () => {
+  assert.strictEqual(firstDuplicateName([]), null);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

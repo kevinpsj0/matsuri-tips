@@ -38,6 +38,20 @@ function getSlotByLabel(shiftType, label) {
   return null;
 }
 
+// Returns the first display name that appears more than once (case-insensitive,
+// trimmed), or null if all are unique. Empty/whitespace names are ignored.
+function firstDuplicateName(names) {
+  var seen = {};
+  for (var i = 0; i < names.length; i++) {
+    var raw = names[i] == null ? "" : String(names[i]).trim();
+    if (!raw) continue;
+    var k = raw.toLowerCase();
+    if (seen[k]) return raw;
+    seen[k] = true;
+  }
+  return null;
+}
+
 function minutesWorked(timeIn, timeOut) {
   var ip = timeIn.split(":");
   var op = timeOut.split(":");
@@ -111,9 +125,10 @@ if (typeof window !== "undefined") {
   window.getSlot = getSlot;
   window.findSlotByTimes = findSlotByTimes;
   window.getSlotByLabel = getSlotByLabel;
+  window.firstDuplicateName = firstDuplicateName;
   window.splitShift = splitShift;
   window.minutesWorked = minutesWorked;
 }
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { SHIFT_SLOTS: SHIFT_SLOTS, getSlot: getSlot, findSlotByTimes: findSlotByTimes, getSlotByLabel: getSlotByLabel, splitShift: splitShift, minutesWorked: minutesWorked };
+  module.exports = { SHIFT_SLOTS: SHIFT_SLOTS, getSlot: getSlot, findSlotByTimes: findSlotByTimes, getSlotByLabel: getSlotByLabel, firstDuplicateName: firstDuplicateName, splitShift: splitShift, minutesWorked: minutesWorked };
 }
