@@ -375,8 +375,10 @@ function buildProposed() {
     if (!servers[i].name) return { error: `Server ${i + 1}: name is required.` };
     if (!getSlot(editShift, servers[i].slot)) return { error: `Server ${i + 1}: pick a time slot.` };
   }
-  const names = chefs.map(c => c.name.toLowerCase());
-  if (new Set(names).size !== names.length) return { error: "Duplicate chef selected." };
+  const dupServer = firstDuplicateName(servers.map(s => s.name));
+  if (dupServer) return { error: "Two servers have the same name: " + dupServer + "." };
+  const dupChef = firstDuplicateName(chefs.map(c => c.name));
+  if (dupChef) return { error: "Duplicate chef selected: " + dupChef + "." };
   return { proposed: { shiftType: editShift, enteredBy, totalTips, servers, chefs } };
 }
 

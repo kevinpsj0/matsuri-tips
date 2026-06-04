@@ -56,6 +56,7 @@
     background: #fff; cursor: pointer;
   }
   .pct-buttons button.selected { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+  .pct-buttons button:disabled { opacity: .45; cursor: not-allowed; }
   .person { border: 1px solid #ddd; border-radius: 10px; padding: .85rem; margin: .6rem 0; background: #fff; }
   .person-head { display: flex; justify-content: space-between; align-items: center; }
   .person-title { font-weight: 700; }
@@ -119,6 +120,7 @@
     <button type="button" data-shift="lunch">Lunch</button>
     <button type="button" data-shift="dinner">Dinner</button>
   </div>
+  <div class="field-error" id="shift-note" style="margin-top:.25rem"></div>
 
   <label for="total-tips">Total tip amount ($)</label>
   <input type="number" id="total-tips" inputmode="decimal" step="0.01" min="1" max="100000">
@@ -164,6 +166,7 @@ function escapeHtml(s) {
 // populateSlotSelect can read currentShift without a temporal-dead-zone error.
 let currentShift = (new Date().getHours() * 60 + new Date().getMinutes()) < (18 * 60 + 30) ? "lunch" : "dinner";
 let chefRoster = []; // [{name}] from the staff roster (role=Chef)
+let todayShifts = { lunch: false, dinner: false }; // which shifts are already entered today
 
 function populateSlotSelect(sel, selectedId) {
   const slots = SHIFT_SLOTS[currentShift] || [];
@@ -177,12 +180,55 @@ function renderShiftToggle() {
 }
 shiftToggle.addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-shift]");
-  if (!btn) return;
+  if (!btn || btn.disabled) return;
   currentShift = btn.dataset.shift;
   renderShiftToggle();
   peopleContainer.querySelectorAll(".p-slot").forEach(sel => populateSlotSelect(sel, sel.value && getSlot(currentShift, sel.value) ? sel.value : ""));
   updatePreview();
 });
+
+// Disable the shift type(s) already entered today; default to the open one.
+// Server enforces this too; this is just UX. Fails open on network error.
+function applyShiftAvailability() {
+  const note = document.getElementById("shift-note");
+  const lunchBtn = shiftToggle.querySelector('button[data-shift="lunch"]');
+  const dinnerBtn = shiftToggle.querySelector('button[data-shift="dinner"]');
+  lunchBtn.disabled = todayShifts.lunch;
+  dinnerBtn.disabled = todayShifts.dinner;
+  if (todayShifts[currentShift]) {
+    const other = currentShift === "lunch" ? "dinner" : "lunch";
+    if (!todayShifts[other]) { currentShift = other; renderShiftToggle(); }
+  }
+  const bothTaken = todayShifts.lunch && todayShifts.dinner;
+  if (bothTaken) {
+    note.textContent = "Both shifts have been entered today. Use 'View today's shifts' to edit them.";
+  } else if (todayShifts.lunch || todayShifts.dinner) {
+    note.textContent = (todayShifts.lunch ? "Lunch" : "Dinner") + " already entered today.";
+  } else {
+    note.textContent = "";
+  }
+  submitBtn.disabled = bothTaken;
+}
+
+function loadTodayShifts() {
+  fetch(ENDPOINT_URL, {
+    method: "POST", mode: "cors",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "fetchToday" }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (!data || !data.ok || !Array.isArray(data.rows)) return;
+      const s = { lunch: false, dinner: false };
+      data.rows.forEach(r => {
+        const sh = String(r.shift || "").toLowerCase();
+        if (sh === "lunch") s.lunch = true; else if (sh === "dinner") s.dinner = true;
+      });
+      todayShifts = s;
+      applyShiftAvailability();
+    })
+    .catch(() => {}); // fail open; server is the backstop
+}
 
 function renderChefList() {
   const sec = document.getElementById("chef-section");
@@ -414,6 +460,7 @@ addPerson();
 applyRememberedName();
 updatePreview();
 loadStaff();
+loadTodayShifts();
 
 // ---- submit ----
 let submissionId = newSubmissionId();
@@ -472,6 +519,16 @@ function validateClient() {
     if (err) err.textContent = msg;
     if (msg) ok = false;
   });
+  const dupName = firstDuplicateName(readServers().map(s => s.name));
+  if (dupName) {
+    const dk = dupName.toLowerCase();
+    Array.from(peopleContainer.querySelectorAll(".person")).forEach(row => {
+      if (row.querySelector(".p-name").value.trim().toLowerCase() === dk) {
+        row.querySelector(".field-error").textContent = "Duplicate server name";
+      }
+    });
+    ok = false;
+  }
   return ok;
 }
 
@@ -551,6 +608,7 @@ function resetForm() {
   clearAllErrors();
   submissionId = newSubmissionId();
   updatePreview();
+  loadTodayShifts(); // the shift just entered is now taken
   if (getMe()) totalTipsEl.focus(); else enteredByEl.focus();
 }
 
