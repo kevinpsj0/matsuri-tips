@@ -51,10 +51,11 @@
   .modal-card h2 { font-size: 1.05rem; margin: 0 0 .3rem; }
   .modal-card .sub { color: #6b7280; font-size: .82rem; margin-bottom: .6rem; }
   .modal-card label { display: block; font-weight: 600; font-size: .85rem; margin: .6rem 0 .2rem; }
-  .modal-card input, .modal-card textarea {
+  .modal-card input[type=text], .modal-card input[type=number], .modal-card textarea, .modal-card select {
     width: 100%; padding: .55rem; border: 1px solid #ccc; border-radius: 6px;
     font: inherit; font-size: .95rem; background: #fff;
   }
+  .modal-card input[type=checkbox] { width: auto; margin: 0; flex: none; }
   .modal-card textarea { resize: vertical; min-height: 4.5rem; }
   .err { color: #b00; font-size: .82rem; margin-top: .4rem; min-height: 1em; }
   .modal-actions { display: flex; gap: .5rem; margin-top: .8rem; }
@@ -65,9 +66,11 @@
   .hint { color: #6b7280; font-size: .82rem; margin: 0 0 .5rem; }
   .edit-person { border: 1px solid #ddd; border-radius: 8px; padding: .55rem; margin-bottom: .5rem; }
   .ep-row { display: flex; gap: .4rem; align-items: center; margin-bottom: .3rem; }
-  .ep-row > input { flex: 1; min-width: 0; }
+  .ep-row > input, .ep-row > select { flex: 1; min-width: 0; }
   .ep-remove { border: 0; background: transparent; color: #b00; font-size: 1.1rem; cursor: pointer; padding: 0 .4rem; line-height: 1; }
   .ep-trainee-row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; font-size: .85rem; }
+  .modal-card .ep-trainee-row label { display: inline-flex; align-items: center; gap: .4rem; margin: 0; }
+  .modal-card .chef-check { display: flex; align-items: center; gap: .5rem; font-weight: 400; font-size: .95rem; margin: 0; padding: .35rem 0; cursor: pointer; }
   .ep-pct { display: flex; gap: .3rem; }
   .ep-pct.hidden { display: none; }
   .ep-pct button { padding: .3rem .55rem; font-size: .78rem; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; }
@@ -275,7 +278,7 @@ function renderEditChefs(checkedNames) {
   if (!names.length) { sec.classList.add("hidden"); list.innerHTML = ""; return; }
   sec.classList.remove("hidden");
   const set = new Set(checked.map(n => n.toLowerCase()));
-  list.innerHTML = names.map(n => `<label class="ep-trainee-row"><input type="checkbox" class="edit-chef-cb" value="${escapeHtml(n)}"${set.has(n.toLowerCase()) ? " checked" : ""}> ${escapeHtml(n)}</label>`).join("");
+  list.innerHTML = names.map(n => `<label class="chef-check"><input type="checkbox" class="edit-chef-cb" value="${escapeHtml(n)}"${set.has(n.toLowerCase()) ? " checked" : ""}> ${escapeHtml(n)}</label>`).join("");
 }
 
 function readEditChefs() {
