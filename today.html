@@ -13,20 +13,31 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Matsuri Tips">
 <style>
+  :root {
+    --indigo: #14223F; --indigo-soft: #26406F;
+    --gold: #D6A04C; --gold-light: #F4D389;
+    --ink: #1c2333; --muted: #6b7280; --line: #e4e7ee; --bg: #f4f5f8;
+  }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
     font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    background: #f7f7f7; color: #222; padding: 1rem; max-width: 480px; margin: 0 auto;
+    background: var(--bg); color: var(--ink); padding: 1rem; max-width: 480px; margin: 0 auto;
   }
-  header.head { display: flex; justify-content: space-between; align-items: center; margin-bottom: .8rem; }
-  header.head h1 { font-size: 1.2rem; margin: 0; }
-  .back { color: #3b82f6; text-decoration: none; font-size: .9rem; }
+  header.head {
+    display: flex; align-items: center; gap: .6rem;
+    margin: -1rem -1rem 1rem; padding: .8rem 1rem .9rem;
+    background: linear-gradient(160deg, var(--indigo-soft), var(--indigo));
+    color: #fff; border-radius: 0 0 16px 16px;
+  }
+  header.head h1 { font-size: 1.15rem; margin: 0; flex: 1; color: #fff; }
+  .brand-logo { width: 30px; height: 30px; border-radius: 7px; flex: none; }
+  .back { color: #fff; background: rgba(255,255,255,0.14); border-radius: 8px; padding: .4rem .6rem; text-decoration: none; font-size: .8rem; white-space: nowrap; }
   .refresh {
-    background: #fff; border: 1px solid #ccc; border-radius: 6px;
+    background: #fff; border: 1px solid var(--line); border-radius: 6px;
     padding: .4rem .8rem; font-size: .85rem; cursor: pointer; margin-bottom: .8rem;
   }
-  .shift { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: .85rem; margin-bottom: .6rem; }
+  .shift { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: .85rem; margin-bottom: .6rem; }
   .shift-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
   .when { font-weight: 700; }
   .tot { color: #14223F; }
@@ -35,8 +46,8 @@
   .ln { display: flex; justify-content: space-between; padding: .15rem 0; font-size: .92rem; gap: .5rem; }
   .ln .val { font-variant-numeric: tabular-nums; }
   .req-btn {
-    border: 1px solid #ccc; background: #fff; border-radius: 999px;
-    padding: .3rem .75rem; font-size: .78rem; cursor: pointer; color: #444;
+    border: 1px solid var(--line); background: #fff; border-radius: 999px;
+    padding: .3rem .75rem; font-size: .78rem; cursor: pointer; color: var(--indigo); font-weight: 600;
   }
   .empty, .loading { text-align: center; color: #6b7280; padding: 2rem 1rem; }
   .toast {
@@ -55,16 +66,17 @@
     width: 100%; padding: .55rem; border: 1px solid #ccc; border-radius: 6px;
     font: inherit; font-size: .95rem; background: #fff;
   }
-  .modal-card input[type=checkbox] { width: auto; margin: 0; flex: none; }
+  .modal-card input[type=checkbox] { width: auto; margin: 0; flex: none; accent-color: var(--indigo); }
+  .modal-card input:focus, .modal-card select:focus, .modal-card textarea:focus { outline: 2px solid var(--gold); outline-offset: -1px; }
   .modal-card textarea { resize: vertical; min-height: 4.5rem; }
   .err { color: #b00; font-size: .82rem; margin-top: .4rem; min-height: 1em; }
   .modal-actions { display: flex; gap: .5rem; margin-top: .8rem; }
   .modal-actions button { flex: 1; padding: .65rem; font-size: .95rem; border-radius: 8px; border: 0; cursor: pointer; }
-  .btn-primary { background: #3b82f6; color: #fff; font-weight: 600; }
-  .btn-secondary { background: #eee; color: #222; }
+  .btn-primary { background: linear-gradient(180deg, var(--gold-light), var(--gold)); color: #2a1c00; font-weight: 700; }
+  .btn-secondary { background: #eef0f5; color: var(--ink); }
   hr.sep { border: 0; border-top: 1px solid #eee; margin: .8rem 0; }
   .hint { color: #6b7280; font-size: .82rem; margin: 0 0 .5rem; }
-  .edit-person { border: 1px solid #ddd; border-radius: 8px; padding: .55rem; margin-bottom: .5rem; }
+  .edit-person { border: 1px solid var(--line); border-radius: 8px; padding: .55rem; margin-bottom: .5rem; }
   .ep-row { display: flex; gap: .4rem; align-items: center; margin-bottom: .3rem; }
   .ep-row > input, .ep-row > select { flex: 1; min-width: 0; }
   .ep-remove { border: 0; background: transparent; color: #b00; font-size: 1.1rem; cursor: pointer; padding: 0 .4rem; line-height: 1; }
@@ -74,15 +86,16 @@
   .ep-pct { display: flex; gap: .3rem; }
   .ep-pct.hidden { display: none; }
   .ep-pct button { padding: .3rem .55rem; font-size: .78rem; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; }
-  .ep-pct button.selected { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+  .ep-pct button.selected { background: var(--indigo); color: #fff; border-color: var(--indigo); }
   .add-btn { border: 1px dashed #999; background: #fff; padding: .55rem; width: 100%; border-radius: 8px; cursor: pointer; margin-top: .25rem; }
 </style>
 </head>
 <body>
 
 <header class="head">
+  <img src="icons/icon.svg" alt="" class="brand-logo">
   <h1>Today's shifts</h1>
-  <a class="back" href="./">&larr; Back to entry</a>
+  <a class="back" href="./">&larr; Entry</a>
 </header>
 
 <button type="button" class="refresh" id="refresh-btn">Refresh</button>
