@@ -138,7 +138,7 @@ async function loadRequests() {
   }
 }
 
-async function addStaff(name) {
+async function addStaff(name, role) {
   if (actionBusy) return;
   name = (name || "").trim();
   if (!name) return;
@@ -147,7 +147,7 @@ async function addStaff(name) {
     const res = await fetch(ENDPOINT_URL, {
       method: "POST", mode: "cors",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action: "addStaff", pin: sessionPin, name: name }),
+      body: JSON.stringify({ action: "addStaff", pin: sessionPin, name: name, role: role || "Server" }),
     });
     const data = await res.json();
     if (!data || !data.ok) { window.alert((data && data.error) || "Could not add."); return; }
@@ -266,7 +266,7 @@ function renderSummary(rows, start, end) {
   for (const r of rows) {
     total += r.amount;
     if (r.role === "Kitchen") kitchen += r.amount;
-    else if (r.role === "Chefs") chefs += r.amount;
+    else if (r.role === "Chef") { chefs += r.amount; staff.add((r.recipient || "").trim().toLowerCase()); }
     else if (r.role === "Trainee") { trainees += r.amount; staff.add((r.recipient || "").trim().toLowerCase()); }
     else { servers += r.amount; staff.add((r.recipient || "").trim().toLowerCase()); }
     if (r.submissionId) shifts.add(r.submissionId);
@@ -345,26 +345,14 @@ function synthesizePropRows(req) {
   const p = req.proposed;
   let splits;
   try { splits = splitShift(p); } catch (e) { return []; }
-  const date = req.shiftDate || "";
-  const time = req.shiftTime || "";
-  const enteredBy = p.enteredBy || "";
-  const totalTips = p.totalTips || 0;
-  const sid = req.submissionId || "";
+  const base = { date: req.shiftDate || "", time: req.shiftTime || "", shift: (p.shiftType === "lunch" ? "Lunch" : "Dinner"), enteredBy: p.enteredBy || "", totalTips: p.totalTips || 0, submissionId: req.submissionId || "" };
   const out = [];
-  for (let i = 0; i < splits.people.length; i++) {
-    const sp = splits.people[i];
-    const pp = p.people[i];
-    out.push({
-      date: date, time: time, enteredBy: enteredBy,
-      recipient: pp.name, role: sp.trainee ? "Trainee" : "Server",
-      traineePct: sp.trainee ? sp.pct : null,
-      timeIn: pp.timeIn, timeOut: pp.timeOut,
-      hours: sp.hours, amount: sp.amount,
-      totalTips: totalTips, submissionId: sid,
-    });
-  }
-  out.push({ date: date, time: time, enteredBy: enteredBy, recipient: "Kitchen", role: "Kitchen", traineePct: null, timeIn: "", timeOut: "", hours: 0, amount: splits.kitchen, totalTips: totalTips, submissionId: sid });
-  out.push({ date: date, time: time, enteredBy: enteredBy, recipient: "Chefs", role: "Chefs", traineePct: null, timeIn: "", timeOut: "", hours: 0, amount: splits.chefs, totalTips: totalTips, submissionId: sid });
+  splits.servers.forEach((sp) => out.push(Object.assign({}, base, {
+    recipient: sp.name, role: sp.trainee ? "Trainee" : "Server", traineePct: sp.trainee ? sp.pct : null,
+    slot: sp.slotLabel, timeIn: sp.timeIn, timeOut: sp.timeOut, hours: sp.hours, amount: sp.amount,
+  })));
+  splits.chefs.forEach((c) => out.push(Object.assign({}, base, { recipient: c.name, role: "Chef", traineePct: null, slot: "", timeIn: "", timeOut: "", hours: 0, amount: c.amount })));
+  out.push(Object.assign({}, base, { recipient: "Kitchen", role: "Kitchen", traineePct: null, slot: "", timeIn: "", timeOut: "", hours: 0, amount: splits.kitchen }));
   return out;
 }
 
@@ -498,7 +486,8 @@ function shiftCardsHtml(rows) {
   const list = Object.values(shifts).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
   return list.map((sh) => {
     const people = sh.recipients.filter((r) => r.role === "Server" || r.role === "Trainee");
-    const fixed = sh.recipients.filter((r) => r.role === "Kitchen" || r.role === "Chefs");
+    const chefsR = sh.recipients.filter((r) => r.role === "Chef");
+    const fixed = sh.recipients.filter((r) => r.role === "Kitchen");
     const timed = people.filter((p) => clockMins(p.timeIn) != null && clockMins(p.timeOut) != null && clockMins(p.timeOut) > clockMins(p.timeIn));
 
     let axisHtml = "";
@@ -528,19 +517,20 @@ function shiftCardsHtml(rows) {
       return `<div class="tl-row"><span class="tl-name" title="${escapeHtml(p.recipient || "")}">${escapeHtml(p.recipient || "?")}${pct}</span>${track}<span class="tl-amt">${fmt(p.amount)}</span></div>`;
     }).join("");
 
-    const fixedSummary = fixed
-      .sort((a, b) => (a.role === "Kitchen" ? -1 : 1))
-      .map((f) => `${f.role} ${fmt(f.amount)}`).join("  ·  ");
+    const chefSummary = chefsR.map((c) => `${escapeHtml(c.recipient || "Chef")} ${fmt(c.amount)}`).join("  ·  ");
+    const fixedSummary = fixed.map((f) => `Kitchen ${fmt(f.amount)}`).join("  ·  ");
+    const shiftTag = sh.recipients[0] && sh.recipients[0].shift ? escapeHtml(sh.recipients[0].shift) + " · " : "";
 
     return `<div class="shift">
       <div class="top">
-        <span class="when">${escapeHtml(sh.date)} ${escapeHtml(sh.time)}</span>
+        <span class="when">${shiftTag}${escapeHtml(sh.date)} ${escapeHtml(sh.time)}</span>
         <span class="tot">${fmt(sh.totalTips)}</span>
       </div>
       <div class="by">Entered by ${escapeHtml(sh.enteredBy || "?")}</div>
       ${axisHtml}
       <div class="tl-rows">${rowsHtml}</div>
-      ${fixedSummary ? `<div class="tl-fixed">${escapeHtml(fixedSummary)}</div>` : ""}
+      ${chefSummary ? `<div class="tl-fixed">${chefSummary}</div>` : ""}
+      ${fixedSummary ? `<div class="tl-fixed">${fixedSummary}</div>` : ""}
     </div>`;
   }).join("");
 }
@@ -555,7 +545,7 @@ function renderStaffManager() {
   const active = sorted.filter((s) => s.active);
   const inactive = sorted.filter((s) => !s.active);
   const row = (s, label, action) => `<div class="staff-row${s.active ? "" : " inactive"}">
-    <span class="staff-name">${escapeHtml(s.name)}</span>
+    <span class="staff-name">${escapeHtml(s.name)}${s.role === "Chef" ? " (chef)" : ""}</span>
     <button type="button" class="staff-btn" data-staff-action="${action}" data-staff-name="${escapeHtml(s.name)}">${label}</button>
   </div>`;
   const activeHtml = active.length
@@ -567,7 +557,8 @@ function renderStaffManager() {
   return `<div class="panel staff-panel">
     <h2>Manage staff</h2>
     <div class="staff-add">
-      <input type="text" id="staff-add-input" placeholder="Add server name" maxlength="40" autocomplete="off" />
+      <input type="text" id="staff-add-input" placeholder="Add staff name" maxlength="40" autocomplete="off" />
+      <select id="staff-add-role"><option value="Server">Server</option><option value="Chef">Chef</option></select>
       <button type="button" id="staff-add-btn">Add</button>
     </div>
     <div class="staff-list">${activeHtml}</div>
@@ -579,7 +570,7 @@ function renderPeople(rows) {
   const manager = renderStaffManager();
   const activeSet = new Set(staffList.filter((s) => s.active).map((s) => s.name.toLowerCase()));
   const people = rows.filter((r) =>
-    (r.role === "Server" || r.role === "Trainee") &&
+    (r.role === "Server" || r.role === "Trainee" || r.role === "Chef") &&
     activeSet.has((r.recipient || "").trim().toLowerCase())
   );
   if (!people.length) {
@@ -665,8 +656,9 @@ function wireEvents() {
     if (resolveBtn && resolveBtn.dataset.rid) { resolveRequest(resolveBtn.dataset.rid, resolveBtn.dataset.resolve); return; }
     if (e.target.closest("#staff-add-btn")) {
       const input = document.getElementById("staff-add-input");
+      const roleSel = document.getElementById("staff-add-role");
       const name = input ? input.value.trim() : "";
-      if (name) addStaff(name);
+      if (name) addStaff(name, roleSel ? roleSel.value : "Server");
       return;
     }
     const staffBtn = e.target.closest("[data-staff-action]");
@@ -681,8 +673,9 @@ function wireEvents() {
   // Submit add-staff on Enter in the input.
   document.getElementById("view").addEventListener("keydown", (e) => {
     if (e.target && e.target.id === "staff-add-input" && e.key === "Enter") {
+      const roleSel = document.getElementById("staff-add-role");
       const name = e.target.value.trim();
-      if (name) addStaff(name);
+      if (name) addStaff(name, roleSel ? roleSel.value : "Server");
     }
   });
 
