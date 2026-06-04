@@ -634,15 +634,11 @@ function renderSettings() {
   return `<div class="panel">
     <div class="set-row">
       <div class="set-label">${escapeHtml(t("settings_language"))}</div>
-      <div class="set-hint">${escapeHtml(t("settings_language_hint"))}</div>
       <div class="set-langs">${langBtn("en", "English")}${langBtn("ko", "한국어")}</div>
     </div>
     <div class="set-row">
       <div class="set-toggle-row">
-        <div>
-          <div class="set-label">${escapeHtml(t("settings_show_split"))}</div>
-          <div class="set-hint" style="margin-bottom:0">${escapeHtml(t("settings_show_split_hint"))}</div>
-        </div>
+        <div class="set-label">${escapeHtml(t("settings_show_split"))}</div>
         <label class="set-switch"><input type="checkbox" id="set-show-split"${showSplitConfig ? " checked" : ""}><span class="set-slider"></span></label>
       </div>
       <div class="set-status" id="set-split-status"></div>

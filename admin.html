@@ -96,10 +96,10 @@
   .range-label { color: var(--muted); font-size: .82rem; margin: .5rem 0 0; }
 
   /* Tabs */
-  .tabs { display: flex; gap: .25rem; margin: 1rem 0; background: #e9ecf3; border-radius: 10px; padding: .25rem; }
+  .tabs { display: flex; flex-wrap: wrap; gap: .25rem; margin: 1rem 0; background: #e9ecf3; border-radius: 10px; padding: .25rem; }
   .tabs button {
-    flex: 1; padding: .55rem .3rem; font-size: .88rem; cursor: pointer; border: 0; border-radius: 8px;
-    background: transparent; color: var(--muted); font-weight: 600;
+    flex: 1 1 30%; padding: .55rem .3rem; font-size: .88rem; cursor: pointer; border: 0; border-radius: 8px;
+    background: transparent; color: var(--muted); font-weight: 600; white-space: nowrap;
   }
   .tabs button.active { background: #fff; color: var(--indigo); box-shadow: 0 1px 3px rgba(20,34,63,0.12); }
 
