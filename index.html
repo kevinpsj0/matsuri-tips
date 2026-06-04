@@ -91,7 +91,7 @@
   .submit-btn {
     width: 100%; padding: 1rem; font-size: 1.1rem; font-weight: 700;
     background: linear-gradient(180deg, var(--brand-soft), var(--brand)); color: #fff;
-    border: 0; border-radius: 10px; cursor: pointer;
+    border: 0; border-radius: 10px; cursor: pointer; margin-top: 1.25rem;
   }
   .submit-btn:disabled { background: #d3c8b8; color: #9a8e7e; cursor: not-allowed; }
   .banner { padding: .75rem; border-radius: 6px; margin: 1rem 0; }
@@ -287,8 +287,23 @@ function setStaff(list) {
   staffNames = arr.filter(s => (s.role || "Server") !== "Chef").map(s => s.name);
   chefRoster = arr.filter(s => (s.role || "Server") === "Chef").map(s => ({ name: s.name }));
   renderChefList();
+  repopulateNameSelects();
   const a = document.activeElement;
   if (a && a.parentElement && a.parentElement.classList.contains("combo")) renderComboList(a);
+}
+
+// Server name is picked from the active staff roster (a native select, like the
+// time slot). Keep any current value that isn't on the roster so it isn't lost.
+function populateNameSelect(sel, selectedValue) {
+  const cur = (selectedValue != null) ? selectedValue : sel.value;
+  const names = staffNames.slice();
+  if (cur && names.indexOf(cur) === -1) names.unshift(cur);
+  sel.innerHTML = `<option value="">${escapeHtml(t("pick_name"))}</option>` +
+    names.map(n => `<option value="${escapeHtml(n)}"${n === cur ? " selected" : ""}>${escapeHtml(n)}</option>`).join("");
+}
+
+function repopulateNameSelects() {
+  peopleContainer.querySelectorAll(".p-name").forEach(sel => populateNameSelect(sel, sel.value));
 }
 
 function renderComboList(input) {
@@ -348,10 +363,7 @@ function createPersonRow() {
       '<span class="person-title">Person</span>' +
       '<button type="button" class="remove-person hidden" data-i18n="remove">Remove</button>' +
     '</div>' +
-    '<div class="combo">' +
-      '<input type="text" class="p-name" autocomplete="off" maxlength="40" data-i18n-ph="ph_name" placeholder="Name">' +
-      '<div class="combo-list hidden"></div>' +
-    '</div>' +
+    '<select class="p-name"></select>' +
     '<label data-i18n="time_slot">Time slot</label>' +
     '<select class="p-slot"></select>' +
     '<div class="toggle-row">' +
@@ -366,9 +378,9 @@ function createPersonRow() {
     '<div class="field-error"></div>';
   applyStaticI18n(row);
 
-  const nameInput = row.querySelector(".p-name");
-  nameInput.addEventListener("input", updatePreview);
-  attachCombo(nameInput);
+  const nameSel = row.querySelector(".p-name");
+  populateNameSelect(nameSel);
+  nameSel.addEventListener("change", updatePreview);
   const slotSel = row.querySelector(".p-slot");
   populateSlotSelect(slotSel);
   slotSel.addEventListener("change", updatePreview);
@@ -472,7 +484,7 @@ function applyRememberedName() {
   if (me) {
     enteredByEl.value = me;
     const firstName = peopleContainer.querySelector(".person .p-name");
-    if (firstName && !firstName.value) firstName.value = me;
+    if (firstName && !firstName.value) populateNameSelect(firstName, me);
   }
   renderSwitchUser();
 }
@@ -499,6 +511,7 @@ function updateLangButtons() {
 function applyLang() {
   applyStaticI18n();
   relabelPeople();
+  repopulateNameSelects();
   peopleContainer.querySelectorAll(".p-slot").forEach(sel => populateSlotSelect(sel, getSlot(currentShift, sel.value) ? sel.value : ""));
   applyShiftAvailability();
   renderSwitchUser();

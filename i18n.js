@@ -21,6 +21,7 @@ var I18N = {
     slot_close: "close",
     chef_suffix: "(chef)",
     pick_time: "Pick a time",
+    pick_name: "Pick a name",
 
     // entry app
     entry_title: "Shift Tip Entry",
@@ -40,7 +41,7 @@ var I18N = {
     time_slot: "Time slot",
     server_n: "Server {n}",
     server_word: "Server",
-    both_entered: "Both shifts have been entered today. Use 'Today' to edit them.",
+    both_entered: "Both shifts have been entered today.",
     one_entered: "{shift} already entered today.",
     trainee_suffix: "({pct}% trainee)",
     prev_recorded: "Previously recorded shift",
@@ -182,12 +183,13 @@ var I18N = {
     slot_close: "마감",
     chef_suffix: "(셰프)",
     pick_time: "시간 선택",
+    pick_name: "이름 선택",
 
     // entry app
     entry_title: "팁 입력",
     today_link: "오늘",
     your_name: "이름",
-    not_me: "{name} 아니세요?",
+    not_me: "{name}님이 아니신가요?",
     shift_label: "시프트",
     total_tips_label: "총 팁 금액 ($)",
     servers_label: "담당 서버",
@@ -201,7 +203,7 @@ var I18N = {
     time_slot: "시간대",
     server_n: "서버 {n}",
     server_word: "서버",
-    both_entered: "오늘 점심과 저녁 시프트가 모두 입력되었습니다. '오늘'에서 수정하세요.",
+    both_entered: "오늘 점심과 저녁 시프트가 모두 입력되었습니다.",
     one_entered: "오늘 {shift} 시프트가 이미 입력되었습니다.",
     trainee_suffix: "({pct}% 수습)",
     prev_recorded: "이전에 기록된 시프트",
