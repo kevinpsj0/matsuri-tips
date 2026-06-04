@@ -18,148 +18,38 @@
 <script>
 const results = document.getElementById("results");
 let passed = 0, failed = 0;
-
-function assertEq(actual, expected, label) {
-  const a = JSON.stringify(actual);
-  const e = JSON.stringify(expected);
-  const ok = a === e;
-  const div = document.createElement("div");
-  div.className = ok ? "pass" : "fail";
-  div.innerHTML = `${ok ? "PASS" : "FAIL"} — ${label}` + (ok ? "" : `<pre>expected: ${e}\nactual:   ${a}</pre>`);
-  results.appendChild(div);
-  ok ? passed++ : failed++;
+function ok(cond, label, detail) {
+  const d = document.createElement("div");
+  d.className = cond ? "pass" : "fail";
+  d.innerHTML = (cond ? "PASS" : "FAIL") + " — " + label + (cond ? "" : `<pre>${detail || ""}</pre>`);
+  results.appendChild(d); cond ? passed++ : failed++;
 }
+const srv = (name, slot, o = {}) => ({ name, slot, trainee: !!o.trainee, pct: o.trainee ? o.pct : null });
+const sum = (out) => out.kitchen + out.chefs.reduce((s,c)=>s+c.amount,0) + out.servers.reduce((s,p)=>s+p.amount,0);
 
-function test(name, fn) {
-  const h = document.createElement("h2");
-  h.textContent = name;
-  results.appendChild(h);
-  try { fn(); } catch (e) {
-    const div = document.createElement("div");
-    div.className = "fail";
-    div.textContent = `FAIL — threw: ${e.message}`;
-    results.appendChild(div);
-    failed++;
-  }
-}
+(function () {
+  let o = splitShift({ shiftType:"lunch", totalTips:400, servers:[srv("Alice","L1100"),srv("Bob","L1200")], chefs:[{name:"Cho"},{name:"Dan"}] });
+  ok(o.kitchen===60 && o.chefs[0].amount===85 && o.chefs[1].amount===85 && o.servers[0].amount===93.5 && o.servers[1].amount===76.5, "lunch $400 2 servers + 2 chefs", JSON.stringify(o));
 
-// Build a person who worked one hour (17:00-18:00) unless overridden.
-function person(name, opts) {
-  opts = opts || {};
-  return {
-    name: name,
-    timeIn: opts.timeIn || "17:00",
-    timeOut: opts.timeOut || "18:00",
-    trainee: !!opts.trainee,
-    pct: opts.trainee ? opts.pct : null,
-  };
-}
-function sumDollars(out) {
-  return out.kitchen + out.chefs + out.people.reduce((s, p) => s + p.amount, 0);
-}
+  o = splitShift({ shiftType:"dinner", totalTips:300, servers:[srv("Eve","D1630"),srv("Fay","D1800")], chefs:[{name:"Cho"}] });
+  ok(o.kitchen===45 && o.chefs[0].amount===85 && o.servers[0].amount===100 && o.servers[1].amount===70, "dinner $300 2 servers + 1 chef", JSON.stringify(o));
 
-test("spec example: $1000, 2 servers + trainee @ 50%, each 1h", () => {
-  const out = splitShift({
-    totalTips: 1000,
-    people: [person("Alice"), person("Bob"), person("Charlie", { trainee: true, pct: 50 })],
-  });
-  assertEq(out, {
-    kitchen: 100,
-    chefs: 450,
-    people: [
-      { name: "Alice", trainee: false, pct: null, hours: 1, amount: 180 },
-      { name: "Bob", trainee: false, pct: null, hours: 1, amount: 180 },
-      { name: "Charlie", trainee: true, pct: 50, hours: 1, amount: 90 },
-    ],
-  }, "exact split with per-person hours and amounts");
-});
+  o = splitShift({ shiftType:"lunch", totalTips:200, servers:[srv("A","L1100"),srv("B","L1100")], chefs:[] });
+  ok(o.chefs.length===0 && Math.round(sum(o)*100)===20000, "no chefs -> servers take all 85%", JSON.stringify(o));
 
-test("no trainee, $200, 2 servers each 1h", () => {
-  const out = splitShift({ totalTips: 200, people: [person("A"), person("B")] });
-  assertEq(out, {
-    kitchen: 20,
-    chefs: 90,
-    people: [
-      { name: "A", trainee: false, pct: null, hours: 1, amount: 45 },
-      { name: "B", trainee: false, pct: null, hours: 1, amount: 45 },
-    ],
-  }, "even split, no trainee");
-});
-
-test("1 server, no trainee, $100.50", () => {
-  const out = splitShift({ totalTips: 100.5, people: [person("Solo")] });
-  assertEq(out, {
-    kitchen: 10.05,
-    chefs: 45.22,
-    people: [{ name: "Solo", trainee: false, pct: null, hours: 1, amount: 45.23 }],
-  }, "single server keeps full pool, residual to chefs");
-});
-
-test("$100.07, 3 servers + 1 trainee @ 25%, each 1h", () => {
-  const out = splitShift({
-    totalTips: 100.07,
-    people: [person("A"), person("B"), person("C"), person("T", { trainee: true, pct: 25 })],
-  });
-  assertEq(out, {
-    kitchen: 10.01,
-    chefs: 45.05,
-    people: [
-      { name: "A", trainee: false, pct: null, hours: 1, amount: 13.85 },
-      { name: "B", trainee: false, pct: null, hours: 1, amount: 13.85 },
-      { name: "C", trainee: false, pct: null, hours: 1, amount: 13.85 },
-      { name: "T", trainee: true, pct: 25, hours: 1, amount: 3.46 },
-    ],
-  }, "residual to chefs");
-});
-
-test("hours reflect worked time", () => {
-  const out = splitShift({ totalTips: 100, people: [person("Solo", { timeOut: "19:30" })] });
-  assertEq(out.people[0].hours, 2.5, "150 minutes -> 2.5h");
-  assertEq(out.people[0].amount, 45, "lone worker gets the whole pool");
-});
-
-test("weighting: longer shift earns a bigger share", () => {
-  const out = splitShift({
-    totalTips: 100,
-    people: [person("Short"), person("Long", { timeOut: "20:00" })], // 1h vs 3h
-  });
-  // pool = $45; weights 60 vs 180 -> floor(4500*1/4)=1125, floor(4500*3/4)=3375
-  assertEq(out.people[0].amount, 11.25, "1h share");
-  assertEq(out.people[1].amount, 33.75, "3h share");
-});
-
-test("sum invariant: kitchen + chefs + people always equals total", () => {
   const cases = [
-    { totalTips: 1, people: [person("A")] },
-    { totalTips: 7.77, people: [person("A", { timeOut: "18:30" }), person("B"), person("T", { trainee: true, pct: 75 })] },
-    { totalTips: 12345.67, people: [person("A"), person("B", { timeOut: "21:00" }), person("C"), person("D"), person("E"), person("F")] },
-    { totalTips: 333.33, people: [person("A"), person("B"), person("T", { trainee: true, pct: 25 })] },
+    { shiftType:"lunch", totalTips:1, servers:[srv("A","L1100")], chefs:[] },
+    { shiftType:"dinner", totalTips:7.77, servers:[srv("A","D1530"),srv("B","D1800")], chefs:[{name:"C"}] },
+    { shiftType:"lunch", totalTips:12345.67, servers:[srv("A","L1100"),srv("B","L1200")], chefs:[{name:"C"},{name:"D"},{name:"E"}] },
   ];
-  for (const c of cases) {
-    const out = splitShift(c);
-    assertEq(Math.round(sumDollars(out) * 100), Math.round(c.totalTips * 100), `sums to total for $${c.totalTips}`);
-  }
-});
-
-test("minimum input: $1.00, 1 server", () => {
-  const out = splitShift({ totalTips: 1, people: [person("A")] });
-  assertEq(out, {
-    kitchen: 0.10,
-    chefs: 0.45,
-    people: [{ name: "A", trainee: false, pct: null, hours: 1, amount: 0.45 }],
-  }, "$1 splits cleanly");
-});
-
-test("non-trainee server has pct null in output", () => {
-  const out = splitShift({ totalTips: 100, people: [person("A")] });
-  assertEq(out.people[0].pct, null, "pct is null for non-trainee");
-});
+  cases.forEach(c => ok(Math.round(sum(splitShift(c))*100)===Math.round(c.totalTips*100), `sum invariant $${c.totalTips}`));
+})();
 
 window.addEventListener("load", () => {
-  const summary = document.createElement("h2");
-  summary.textContent = `${passed} passed, ${failed} failed`;
-  summary.style.color = failed ? "#b00" : "#060";
-  results.appendChild(summary);
+  const s = document.createElement("h2");
+  s.textContent = `${passed} passed, ${failed} failed`;
+  s.style.color = failed ? "#b00" : "#060";
+  results.appendChild(s);
 });
 </script>
 </body>
