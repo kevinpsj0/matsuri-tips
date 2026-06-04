@@ -197,7 +197,11 @@ function applyShiftAvailability() {
   dinnerBtn.disabled = todayShifts.dinner;
   if (todayShifts[currentShift]) {
     const other = currentShift === "lunch" ? "dinner" : "lunch";
-    if (!todayShifts[other]) { currentShift = other; renderShiftToggle(); }
+    if (!todayShifts[other]) {
+      currentShift = other;
+      renderShiftToggle();
+      peopleContainer.querySelectorAll(".p-slot").forEach(sel => populateSlotSelect(sel, getSlot(currentShift, sel.value) ? sel.value : ""));
+    }
   }
   const bothTaken = todayShifts.lunch && todayShifts.dinner;
   if (bothTaken) {
