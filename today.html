@@ -186,6 +186,7 @@ let shiftsMap = {};
 let currentSid = null;
 let editShift = "dinner";
 let editChefRoster = []; // [{name}] role=Chef from the roster
+let showSplit = true; // global config: hide per-person split amounts when off
 
 async function loadChefRoster() {
   try {
@@ -207,6 +208,7 @@ async function load() {
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     if (!data || !data.ok) throw new Error((data && data.error) || "load failed");
+    if (data.config && typeof data.config.showSplit === "boolean") showSplit = data.config.showSplit;
     render(data.rows || []);
   } catch (e) {
     content.innerHTML = `<div class="empty">${escapeHtml(t("could_not_load"))}</div>`;
@@ -231,7 +233,8 @@ function render(rows) {
       if (r.role === "Chef") label += " " + escapeHtml(t("chef_suffix"));
       if (r.role === "Trainee" && r.traineePct != null) label += " " + escapeHtml(t("trainee_suffix", { pct: r.traineePct }));
       const tm = r.slot ? ` · ${escapeHtml(localizeSlotLabel(r.slot))}` : "";
-      return `<div class="ln"><span>${label}${tm}</span><span class="val">${fmt(r.amount)}</span></div>`;
+      const amt = showSplit ? `<span class="val">${fmt(r.amount)}</span>` : "";
+      return `<div class="ln"><span>${label}${tm}</span>${amt}</div>`;
     }).join("");
     const shiftTag = sh.recipients[0] && sh.recipients[0].shift ? escapeHtml(localizeShiftName(sh.recipients[0].shift)) + " · " : "";
     return `<div class="shift" data-sid="${escapeHtml(sh.id)}">
