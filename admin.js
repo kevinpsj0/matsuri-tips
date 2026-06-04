@@ -550,15 +550,21 @@ function renderStaffManager() {
   const sorted = staffList.slice().sort((a, b) => a.name.localeCompare(b.name));
   const active = sorted.filter((s) => s.active);
   const inactive = sorted.filter((s) => !s.active);
-  const row = (s, label, action) => `<div class="staff-row${s.active ? "" : " inactive"}">
-    <span class="staff-name">${escapeHtml(s.name)}${s.role === "Chef" ? " " + escapeHtml(t("chef_suffix")) : ""}</span>
+  const isChef = (s) => s.role === "Chef";
+  // showRole tags chefs with a suffix; only needed where roles are mixed (the
+  // inactive list). Active staff are split into labeled Servers/Chefs groups.
+  const row = (s, label, action, showRole) => `<div class="staff-row${s.active ? "" : " inactive"}">
+    <span class="staff-name">${escapeHtml(s.name)}${showRole && isChef(s) ? " " + escapeHtml(t("chef_suffix")) : ""}</span>
     <button type="button" class="staff-btn" data-staff-action="${action}" data-staff-name="${escapeHtml(s.name)}">${escapeHtml(label)}</button>
   </div>`;
+  const group = (members, title) => members.length
+    ? `<div class="staff-group"><div class="staff-group-h">${escapeHtml(title)}</div>${members.map((s) => row(s, t("inactivate"), "inactivate", false)).join("")}</div>`
+    : "";
   const activeHtml = active.length
-    ? active.map((s) => row(s, t("inactivate"), "inactivate")).join("")
+    ? group(active.filter((s) => !isChef(s)), t("card_servers")) + group(active.filter(isChef), t("card_chefs"))
     : `<div class="staff-empty">${escapeHtml(t("no_active_staff"))}</div>`;
   const inactiveHtml = inactive.length
-    ? `<details class="staff-inactive"><summary>${escapeHtml(t("inactive_count", { n: inactive.length }))}</summary>${inactive.map((s) => row(s, t("reactivate"), "activate")).join("")}</details>`
+    ? `<details class="staff-inactive"><summary>${escapeHtml(t("inactive_count", { n: inactive.length }))}</summary>${inactive.map((s) => row(s, t("reactivate"), "activate", true)).join("")}</details>`
     : "";
   return `<div class="panel staff-panel">
     <h2>${escapeHtml(t("manage_staff"))}</h2>
@@ -576,7 +582,7 @@ function renderPeople(rows) {
   const manager = renderStaffManager();
   const activeSet = new Set(staffList.filter((s) => s.active).map((s) => s.name.toLowerCase()));
   const people = rows.filter((r) =>
-    (r.role === "Server" || r.role === "Trainee" || r.role === "Chef") &&
+    (r.role === "Server" || r.role === "Trainee") && // servers only; chefs excluded
     activeSet.has((r.recipient || "").trim().toLowerCase())
   );
   if (!people.length) {
