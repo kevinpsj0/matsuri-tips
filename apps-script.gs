@@ -5,9 +5,10 @@
 // docs/superpowers/specs/2026-05-29-time-based-split-design.md.
 
 // Column indices (1-based, A=1)
+// v3 14-column ledger.
 const COL = {
-  DATE: 1, TIME: 2, ENTERED_BY: 3, RECIPIENT: 4, ROLE: 5, TRAINEE_PCT: 6,
-  TIME_IN: 7, TIME_OUT: 8, HOURS: 9, AMOUNT: 10, TOTAL_TIPS: 11, SUBMISSION_ID: 12,
+  DATE: 1, TIME: 2, SHIFT: 3, ENTERED_BY: 4, RECIPIENT: 5, ROLE: 6, TRAINEE_PCT: 7,
+  SLOT: 8, TIME_IN: 9, TIME_OUT: 10, HOURS: 11, AMOUNT: 12, TOTAL_TIPS: 13, SUBMISSION_ID: 14,
 };
 const NUM_COLS = COL.SUBMISSION_ID;
 
@@ -15,34 +16,110 @@ const NUM_COLS = COL.SUBMISSION_ID;
 // Index 0 (white) and index 1 (light gray) flip from one shift to the next.
 const SHIFT_SHADES = ["#ffffff", "#f0f0f0"];
 
-// MUST match calc.js (minutesWorked / splitShift).
+// MUST match calc.js (SHIFT_SLOTS / getSlot / findSlotByTimes / getSlotByLabel /
+// minutesWorked / splitShift). Keep this block verbatim with calc.js.
+var SHIFT_SLOTS = {
+  lunch: [
+    { id: "L1100", label: "11 – 4:30", timeIn: "11:00", timeOut: "16:30" },
+    { id: "L1200", label: "12 – 4:30", timeIn: "12:00", timeOut: "16:30" },
+  ],
+  dinner: [
+    { id: "D1530", label: "3:30 – close", timeIn: "15:30", timeOut: "21:30" },
+    { id: "D1630", label: "4:30 – close", timeIn: "16:30", timeOut: "21:30" },
+    { id: "D1730", label: "5:30 – close", timeIn: "17:30", timeOut: "21:30" },
+    { id: "D1800", label: "6 – close",    timeIn: "18:00", timeOut: "21:30" },
+  ],
+};
+
+function getSlot(shiftType, slotId) {
+  var slots = SHIFT_SLOTS[shiftType];
+  if (!slots) return null;
+  for (var i = 0; i < slots.length; i++) if (slots[i].id === slotId) return slots[i];
+  return null;
+}
+
+function findSlotByTimes(shiftType, timeIn, timeOut) {
+  var slots = SHIFT_SLOTS[shiftType];
+  if (!slots) return null;
+  for (var i = 0; i < slots.length; i++) {
+    if (slots[i].timeIn === timeIn && slots[i].timeOut === timeOut) return slots[i];
+  }
+  return null;
+}
+
+function getSlotByLabel(shiftType, label) {
+  var slots = SHIFT_SLOTS[shiftType];
+  if (!slots) return null;
+  for (var i = 0; i < slots.length; i++) if (slots[i].label === label) return slots[i];
+  return null;
+}
+
 function minutesWorked(timeIn, timeOut) {
-  const ip = timeIn.split(":");
-  const op = timeOut.split(":");
+  var ip = timeIn.split(":");
+  var op = timeOut.split(":");
   return (Number(op[0]) * 60 + Number(op[1])) - (Number(ip[0]) * 60 + Number(ip[1]));
 }
 
 function splitShift(input) {
-  const T_cents = Math.round(input.totalTips * 100);
-  const kitchenCents = Math.round(T_cents * 0.10);
-  const poolCents = Math.round(T_cents * 0.45);
+  var T = Math.round(input.totalTips * 100);
+  var kitchenCents = Math.round(T * 0.15);
+  var pool = T - kitchenCents;
 
-  const enriched = input.people.map(function (p) {
-    const minutes = minutesWorked(p.timeIn, p.timeOut);
-    const rate = p.trainee ? p.pct : 100;
-    return { name: p.name, trainee: !!p.trainee, pct: p.trainee ? p.pct : null, minutes: minutes, weight: minutes * rate };
+  var servers = input.servers || [];
+  var chefs = input.chefs || [];
+  var S = servers.length;
+  var C = chefs.length;
+
+  var enriched = servers.map(function (p) {
+    var slot = getSlot(input.shiftType, p.slot);
+    var timeIn = slot ? slot.timeIn : p.timeIn;
+    var timeOut = slot ? slot.timeOut : p.timeOut;
+    var minutes = minutesWorked(timeIn, timeOut);
+    var rate = p.trainee ? p.pct : 100;
+    return {
+      name: p.name, trainee: !!p.trainee, pct: p.trainee ? p.pct : null,
+      slot: slot ? slot.id : p.slot, slotLabel: slot ? slot.label : "",
+      timeIn: timeIn, timeOut: timeOut,
+      hours: Math.round(minutes / 60 * 100) / 100, weight: minutes * rate,
+    };
   });
-  const totalWeight = enriched.reduce(function (s, p) { return s + p.weight; }, 0);
 
-  let distributed = 0;
-  const people = enriched.map(function (p) {
-    const cents = totalWeight > 0 ? Math.floor(poolCents * p.weight / totalWeight) : 0;
-    distributed += cents;
-    return { name: p.name, trainee: p.trainee, pct: p.pct, hours: Math.round(p.minutes / 60 * 100) / 100, amount: cents / 100 };
+  var chefPool;
+  if (C === 0) chefPool = 0;
+  else if (input.shiftType === "lunch") chefPool = Math.round(pool * 0.5);
+  else chefPool = Math.round(pool * C / (S + C)); // dinner
+  var serverPool = pool - chefPool;
+
+  var chefsOut = [];
+  if (C > 0) {
+    var base = Math.floor(chefPool / C);
+    var chefRemainder = chefPool - base * C;
+    for (var ci = 0; ci < C; ci++) {
+      chefsOut.push({ name: chefs[ci].name, amount: (base + (ci < chefRemainder ? 1 : 0)) / 100 });
+    }
+  }
+
+  var totalWeight = enriched.reduce(function (s, p) { return s + p.weight; }, 0);
+  var cents = enriched.map(function (p) {
+    return totalWeight > 0 ? Math.floor(serverPool * p.weight / totalWeight) : 0;
   });
-  const chefsCents = T_cents - kitchenCents - distributed;
+  var distributed = cents.reduce(function (s, c) { return s + c; }, 0);
+  var remainder = serverPool - distributed;
+  var order = enriched.map(function (_, i) { return i; }).sort(function (a, b) {
+    if (enriched[b].weight !== enriched[a].weight) return enriched[b].weight - enriched[a].weight;
+    return a - b;
+  });
+  for (var r = 0; r < remainder && order.length; r++) cents[order[r % order.length]] += 1;
 
-  return { kitchen: kitchenCents / 100, chefs: chefsCents / 100, people: people };
+  var serversOut = enriched.map(function (p, i) {
+    return {
+      name: p.name, trainee: p.trainee, pct: p.pct,
+      slot: p.slot, slotLabel: p.slotLabel, timeIn: p.timeIn, timeOut: p.timeOut,
+      hours: p.hours, amount: cents[i] / 100,
+    };
+  });
+
+  return { shiftType: input.shiftType, kitchen: kitchenCents / 100, servers: serversOut, chefs: chefsOut };
 }
 
 function jsonResponse(obj) {
@@ -57,26 +134,8 @@ function isValidTime(t) {
 
 function validatePayload(p) {
   if (!p || typeof p !== "object") return "Invalid payload";
-  if (typeof p.submissionId !== "string" || !p.submissionId || p.submissionId.length > 64)
-    return "Invalid submissionId";
-  if (typeof p.enteredBy !== "string" || !p.enteredBy.trim() || p.enteredBy.length > 60)
-    return "Invalid enteredBy";
-  if (typeof p.totalTips !== "number" || !isFinite(p.totalTips) || p.totalTips < 1 || p.totalTips > 100000)
-    return "totalTips must be between 1 and 100000";
-  if (!Array.isArray(p.people) || p.people.length < 1 || p.people.length > 12)
-    return "people must have 1-12 entries";
-  for (const person of p.people) {
-    if (!person || typeof person !== "object") return "Invalid person";
-    if (typeof person.name !== "string" || !person.name.trim() || person.name.length > 40)
-      return "Invalid person name";
-    if (!isValidTime(person.timeIn) || !isValidTime(person.timeOut))
-      return "Invalid time (use HH:MM)";
-    if (minutesWorked(person.timeIn, person.timeOut) <= 0)
-      return "Clock-out must be after clock-in for " + person.name.trim();
-    if (person.trainee && person.pct !== 25 && person.pct !== 50 && person.pct !== 75)
-      return "Trainee level must be 25, 50, or 75";
-  }
-  return null;
+  if (typeof p.submissionId !== "string" || !p.submissionId || p.submissionId.length > 64) return "Invalid submissionId";
+  return validateShiftFields(p);
 }
 
 function findRowsBySubmissionId(sheet, submissionId) {
@@ -87,23 +146,30 @@ function findRowsBySubmissionId(sheet, submissionId) {
 }
 
 function splitsFromRows(rows) {
-  const splits = { kitchen: 0, chefs: 0, people: [] };
+  const out = { shiftType: "", kitchen: 0, servers: [], chefs: [] };
   for (const row of rows) {
     const role = String(row[COL.ROLE - 1]);
     const amount = Number(row[COL.AMOUNT - 1]) || 0;
-    if (role === "Kitchen") splits.kitchen = amount;
-    else if (role === "Chefs") splits.chefs = amount;
+    if (!out.shiftType) out.shiftType = String(row[COL.SHIFT - 1] || "").toLowerCase();
+    if (role === "Kitchen") out.kitchen = amount;
+    else if (role === "Chef") out.chefs.push({ name: String(row[COL.RECIPIENT - 1] || ""), amount: amount });
     else {
-      splits.people.push({
+      var sLabel = String(row[COL.SLOT - 1] || "");
+      var sSlot = getSlotByLabel(out.shiftType, sLabel);
+      out.servers.push({
         name: String(row[COL.RECIPIENT - 1] || ""),
         trainee: role === "Trainee",
         pct: row[COL.TRAINEE_PCT - 1] === "" ? null : Number(row[COL.TRAINEE_PCT - 1]),
+        slot: sSlot ? sSlot.id : "",
+        slotLabel: sLabel,
+        timeIn: sSlot ? sSlot.timeIn : "",
+        timeOut: sSlot ? sSlot.timeOut : "",
         hours: Number(row[COL.HOURS - 1]) || 0,
         amount: amount,
       });
     }
   }
-  return splits;
+  return out;
 }
 
 // Read path for the entry form's name dropdowns. Returns the roster from the
@@ -114,7 +180,7 @@ function splitsFromRows(rows) {
 function readStaffRows(sheet) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  const values = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+  const values = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
   const seen = {};
   const out = [];
   for (let i = 0; i < values.length; i++) {
@@ -126,7 +192,8 @@ function readStaffRows(sheet) {
     const rawB = values[i][1];
     // Empty cell or anything non-FALSE counts as active (backward compat).
     const active = !(rawB === false || String(rawB).toLowerCase() === "false" || String(rawB).toLowerCase() === "inactive");
-    out.push({ name: name, active: active, rowIdx: i + 2 });
+    const role = String(values[i][2] || "").trim().toLowerCase() === "chef" ? "Chef" : "Server";
+    out.push({ name: name, active: active, role: role, rowIdx: i + 2 });
   }
   return out;
 }
@@ -137,7 +204,7 @@ function getOrCreateStaffSheet(ss) {
   if (!sheet) {
     try {
       sheet = ss.insertSheet("Staff", ss.getNumSheets());
-      sheet.getRange(1, 1, 1, 2).setValues([["Name", "Active"]]).setFontWeight("bold");
+      sheet.getRange(1, 1, 1, 3).setValues([["Name", "Active", "Role"]]).setFontWeight("bold");
       sheet.setFrozenRows(1);
       return sheet;
     } catch (e) {
@@ -145,9 +212,12 @@ function getOrCreateStaffSheet(ss) {
       if (!sheet) throw e;
     }
   }
-  // Backfill the Active header without touching existing names.
+  // Backfill the Active + Role headers without touching existing names.
   if (String(sheet.getRange(1, 2).getValue() || "") !== "Active") {
     sheet.getRange(1, 2).setValue("Active").setFontWeight("bold");
+  }
+  if (String(sheet.getRange(1, 3).getValue() || "") !== "Role") {
+    sheet.getRange(1, 3).setValue("Role").setFontWeight("bold");
   }
   return sheet;
 }
@@ -156,7 +226,8 @@ function getOrCreateStaffSheet(ss) {
 function handleFetchStaff() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Staff");
   if (!sheet) return jsonResponse({ ok: true, staff: [] });
-  const staff = readStaffRows(sheet).filter(function (s) { return s.active; }).map(function (s) { return s.name; });
+  const staff = readStaffRows(sheet).filter(function (s) { return s.active; })
+    .map(function (s) { return { name: s.name, role: s.role }; });
   return jsonResponse({ ok: true, staff: staff });
 }
 
@@ -171,6 +242,7 @@ function handleAddStaff(payload) {
   const name = typeof payload.name === "string" ? payload.name.trim() : "";
   if (!name) return jsonResponse({ ok: false, error: "Name is required" });
   if (name.length > 40) return jsonResponse({ ok: false, error: "Name is too long (40 chars max)" });
+  const role = (typeof payload.role === "string" && payload.role.toLowerCase() === "chef") ? "Chef" : "Server";
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const lock = LockService.getScriptLock();
@@ -184,10 +256,11 @@ function handleAddStaff(payload) {
         if (s.active) return jsonResponse({ ok: false, error: name + " is already on the roster." });
         // Re-activate instead of inserting a duplicate row.
         sheet.getRange(s.rowIdx, 2).setValue(true);
+        sheet.getRange(s.rowIdx, 3).setValue(role);
         return jsonResponse({ ok: true, reactivated: true });
       }
     }
-    sheet.appendRow([safeText(name), true]);
+    sheet.appendRow([safeText(name), true, role]);
     return jsonResponse({ ok: true });
   } catch (err) {
     return jsonResponse({ ok: false, retryable: true, error: String(err && err.message || err) });
@@ -245,7 +318,7 @@ function handleFetchData(payload) {
   const sheet = ss.getSheets()[0];
   const lastRow = sheet.getLastRow();
   const staffSheet = ss.getSheetByName("Staff");
-  const staff = staffSheet ? readStaffRows(staffSheet).map(function (s) { return { name: s.name, active: s.active }; }) : [];
+  const staff = staffSheet ? readStaffRows(staffSheet).map(function (s) { return { name: s.name, active: s.active, role: s.role }; }) : [];
   if (lastRow < 2) return jsonResponse({ ok: true, rows: [], staff: staff });
 
   const tz = ss.getSpreadsheetTimeZone();
@@ -257,10 +330,12 @@ function handleFetchData(payload) {
   const rows = values.map((r) => ({
     date: asDateStr(r[COL.DATE - 1]),
     time: asTimeStr(r[COL.TIME - 1]),
+    shift: String(r[COL.SHIFT - 1] || ""),
     enteredBy: String(r[COL.ENTERED_BY - 1] || ""),
     recipient: String(r[COL.RECIPIENT - 1] || ""),
     role: String(r[COL.ROLE - 1] || ""),
     traineePct: numOrNull(r[COL.TRAINEE_PCT - 1]),
+    slot: String(r[COL.SLOT - 1] || ""),
     timeIn: asTimeStr(r[COL.TIME_IN - 1]),
     timeOut: asTimeStr(r[COL.TIME_OUT - 1]),
     hours: Number(r[COL.HOURS - 1]) || 0,
@@ -294,10 +369,12 @@ function handleFetchToday() {
     rows.push({
       date: date,
       time: asTimeStr(r[COL.TIME - 1]),
+      shift: String(r[COL.SHIFT - 1] || ""),
       enteredBy: String(r[COL.ENTERED_BY - 1] || ""),
       recipient: String(r[COL.RECIPIENT - 1] || ""),
       role: String(r[COL.ROLE - 1] || ""),
       traineePct: numOrNull(r[COL.TRAINEE_PCT - 1]),
+      slot: String(r[COL.SLOT - 1] || ""),
       timeIn: asTimeStr(r[COL.TIME_IN - 1]),
       timeOut: asTimeStr(r[COL.TIME_OUT - 1]),
       hours: Number(r[COL.HOURS - 1]) || 0,
@@ -309,26 +386,29 @@ function handleFetchToday() {
   return jsonResponse({ ok: true, rows: rows });
 }
 
-// Validates the shift fields (everything except submissionId). Used by the
-// edit-request flow to check that a proposed shift is well-formed.
+// Validates the shift body (everything except submissionId). Shared by the
+// entry write path and the edit-request flow.
 function validateShiftFields(p) {
   if (!p || typeof p !== "object") return "Invalid shift";
-  if (typeof p.enteredBy !== "string" || !p.enteredBy.trim() || p.enteredBy.length > 60)
-    return "Invalid enteredBy";
+  if (p.shiftType !== "lunch" && p.shiftType !== "dinner") return "Invalid shift type";
+  if (typeof p.enteredBy !== "string" || !p.enteredBy.trim() || p.enteredBy.length > 60) return "Invalid enteredBy";
   if (typeof p.totalTips !== "number" || !isFinite(p.totalTips) || p.totalTips < 1 || p.totalTips > 100000)
     return "totalTips must be between 1 and 100000";
-  if (!Array.isArray(p.people) || p.people.length < 1 || p.people.length > 12)
-    return "people must have 1-12 entries";
-  for (const person of p.people) {
-    if (!person || typeof person !== "object") return "Invalid person";
-    if (typeof person.name !== "string" || !person.name.trim() || person.name.length > 40)
-      return "Invalid person name";
-    if (!isValidTime(person.timeIn) || !isValidTime(person.timeOut))
-      return "Invalid time (use HH:MM)";
-    if (minutesWorked(person.timeIn, person.timeOut) <= 0)
-      return "Clock-out must be after clock-in for " + person.name.trim();
-    if (person.trainee && person.pct !== 25 && person.pct !== 50 && person.pct !== 75)
-      return "Trainee level must be 25, 50, or 75";
+  if (!Array.isArray(p.servers) || p.servers.length < 1 || p.servers.length > 12) return "servers must have 1-12 entries";
+  for (const s of p.servers) {
+    if (!s || typeof s !== "object") return "Invalid server";
+    if (typeof s.name !== "string" || !s.name.trim() || s.name.length > 40) return "Invalid server name";
+    if (!getSlot(p.shiftType, s.slot)) return "Invalid time slot for " + (s.name || "server");
+    if (s.trainee && s.pct !== 25 && s.pct !== 50 && s.pct !== 75) return "Trainee level must be 25, 50, or 75";
+  }
+  if (!Array.isArray(p.chefs) || p.chefs.length > 6) return "chefs must have 0-6 entries";
+  const seen = {};
+  for (const c of p.chefs) {
+    if (!c || typeof c !== "object") return "Invalid chef";
+    if (typeof c.name !== "string" || !c.name.trim() || c.name.length > 40) return "Invalid chef name";
+    const k = c.name.trim().toLowerCase();
+    if (seen[k]) return "Duplicate chef: " + c.name.trim();
+    seen[k] = true;
   }
   return null;
 }
@@ -416,18 +496,14 @@ function handleRequestEdit(payload) {
   // Re-build proposed from only the validated fields so an oversized or
   // adversarial payload can't bloat the JSON cell or smuggle extra keys.
   const cleanProposed = {
+    shiftType: payload.proposed.shiftType,
     enteredBy: String(payload.proposed.enteredBy).trim(),
     totalTips: Number(payload.proposed.totalTips),
-    people: payload.proposed.people.map(function (p) {
-      const trainee = !!p.trainee;
-      return {
-        name: String(p.name).trim(),
-        timeIn: String(p.timeIn),
-        timeOut: String(p.timeOut),
-        trainee: trainee,
-        pct: trainee ? Number(p.pct) : null,
-      };
+    servers: payload.proposed.servers.map(function (s) {
+      const trainee = !!s.trainee;
+      return { name: String(s.name).trim(), slot: String(s.slot), trainee: trainee, pct: trainee ? Number(s.pct) : null };
     }),
+    chefs: payload.proposed.chefs.map(function (c) { return { name: String(c.name).trim() }; }),
   };
   const reqId = "er-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
   const now = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm");
@@ -541,36 +617,41 @@ function handleResolveRequest(payload) {
       if (!targetRowIdxs.length) return jsonResponse({ ok: false, error: "Shift not found in ledger" });
 
       const splits = splitShift(proposed);
+      const shiftLabel = proposed.shiftType === "lunch" ? "Lunch" : "Dinner";
       const enteredBy = safeText(String(proposed.enteredBy).trim());
       const newRows = [];
       function baseRow() {
         const r = new Array(NUM_COLS).fill("");
         r[COL.DATE - 1] = preservedDate;
         r[COL.TIME - 1] = preservedTime;
+        r[COL.SHIFT - 1] = shiftLabel;
         r[COL.ENTERED_BY - 1] = enteredBy;
         r[COL.TOTAL_TIPS - 1] = proposed.totalTips;
         r[COL.SUBMISSION_ID - 1] = sid;
         return r;
       }
-      for (let i = 0; i < splits.people.length; i++) {
-        const sp = splits.people[i];
-        const pp = proposed.people[i];
+      for (const sp of splits.servers) {
         const r = baseRow();
-        r[COL.RECIPIENT - 1] = safeText(String(pp.name).trim());
+        r[COL.RECIPIENT - 1] = safeText(sp.name.trim());
         r[COL.ROLE - 1] = sp.trainee ? "Trainee" : "Server";
         r[COL.TRAINEE_PCT - 1] = sp.trainee ? sp.pct : "";
-        r[COL.TIME_IN - 1] = pp.timeIn;
-        r[COL.TIME_OUT - 1] = pp.timeOut;
+        r[COL.SLOT - 1] = sp.slotLabel;
+        r[COL.TIME_IN - 1] = sp.timeIn;
+        r[COL.TIME_OUT - 1] = sp.timeOut;
         r[COL.HOURS - 1] = sp.hours;
         r[COL.AMOUNT - 1] = sp.amount;
+        newRows.push(r);
+      }
+      for (const cf of splits.chefs) {
+        const r = baseRow();
+        r[COL.RECIPIENT - 1] = safeText(cf.name.trim());
+        r[COL.ROLE - 1] = "Chef";
+        r[COL.AMOUNT - 1] = cf.amount;
         newRows.push(r);
       }
       const k = baseRow();
       k[COL.RECIPIENT - 1] = "Kitchen"; k[COL.ROLE - 1] = "Kitchen"; k[COL.AMOUNT - 1] = splits.kitchen;
       newRows.push(k);
-      const c = baseRow();
-      c[COL.RECIPIENT - 1] = "Chefs"; c[COL.ROLE - 1] = "Chefs"; c[COL.AMOUNT - 1] = splits.chefs;
-      newRows.push(c);
 
       // Save the originals so we can restore the ledger if writing new rows fails.
       ledgerSavedRows = targetRowIdxs.map(function (r) { return ldata[r - 2]; });
@@ -734,45 +815,45 @@ function doPost(e) {
     const now = new Date();
     const dateStr = Utilities.formatDate(now, tz, "yyyy-MM-dd");
     const timeStr = Utilities.formatDate(now, tz, "HH:mm");
+    const shiftLabel = payload.shiftType === "lunch" ? "Lunch" : "Dinner";
     const enteredBy = payload.enteredBy.trim();
-
-    const rowsToWrite = [];
 
     function baseRow() {
       const row = new Array(NUM_COLS).fill("");
       row[COL.DATE - 1] = dateStr;
       row[COL.TIME - 1] = timeStr;
+      row[COL.SHIFT - 1] = shiftLabel;
       row[COL.ENTERED_BY - 1] = enteredBy;
       row[COL.TOTAL_TIPS - 1] = payload.totalTips;
       row[COL.SUBMISSION_ID - 1] = payload.submissionId;
       return row;
     }
 
-    for (let i = 0; i < splits.people.length; i++) {
-      const sp = splits.people[i];
-      const pp = payload.people[i];
+    const rowsToWrite = [];
+    for (const sp of splits.servers) {
       const row = baseRow();
-      row[COL.RECIPIENT - 1] = pp.name.trim();
+      row[COL.RECIPIENT - 1] = safeText(sp.name.trim());
       row[COL.ROLE - 1] = sp.trainee ? "Trainee" : "Server";
       row[COL.TRAINEE_PCT - 1] = sp.trainee ? sp.pct : "";
-      row[COL.TIME_IN - 1] = pp.timeIn;
-      row[COL.TIME_OUT - 1] = pp.timeOut;
+      row[COL.SLOT - 1] = sp.slotLabel;
+      row[COL.TIME_IN - 1] = sp.timeIn;
+      row[COL.TIME_OUT - 1] = sp.timeOut;
       row[COL.HOURS - 1] = sp.hours;
       row[COL.AMOUNT - 1] = sp.amount;
       rowsToWrite.push(row);
     }
-
+    for (const cf of splits.chefs) {
+      const row = baseRow();
+      row[COL.RECIPIENT - 1] = safeText(cf.name.trim());
+      row[COL.ROLE - 1] = "Chef";
+      row[COL.AMOUNT - 1] = cf.amount;
+      rowsToWrite.push(row);
+    }
     const kitchenRow = baseRow();
     kitchenRow[COL.RECIPIENT - 1] = "Kitchen";
     kitchenRow[COL.ROLE - 1] = "Kitchen";
     kitchenRow[COL.AMOUNT - 1] = splits.kitchen;
     rowsToWrite.push(kitchenRow);
-
-    const chefsRow = baseRow();
-    chefsRow[COL.RECIPIENT - 1] = "Chefs";
-    chefsRow[COL.ROLE - 1] = "Chefs";
-    chefsRow[COL.AMOUNT - 1] = splits.chefs;
-    rowsToWrite.push(chefsRow);
 
     const startRow = sheet.getLastRow() + 1;
     const range = sheet.getRange(startRow, 1, rowsToWrite.length, NUM_COLS);
@@ -801,13 +882,16 @@ function setupSheet() {
   const sheet = ss.getSheets()[0];
   sheet.clear();
   const header = [
-    "Date", "Time", "Entered by", "Recipient", "Role", "Trainee %",
-    "Time in", "Time out", "Hours", "Amount $", "Total tips", "Submission ID",
+    "Date", "Time", "Shift", "Entered by", "Recipient", "Role", "Trainee %",
+    "Slot", "Time in", "Time out", "Hours", "Amount $", "Total tips", "Submission ID",
   ];
   sheet.getRange(1, 1, 1, header.length).setValues([header]).setFontWeight("bold");
   sheet.setFrozenRows(1);
-  sheet.getRange("J:J").setNumberFormat("$#,##0.00"); // Amount $
-  sheet.getRange("K:K").setNumberFormat("$#,##0.00"); // Total tips
+  sheet.getRange("L:L").setNumberFormat("$#,##0.00"); // Amount $
+  sheet.getRange("M:M").setNumberFormat("$#,##0.00"); // Total tips
+  // Fresh start also clears stale (old-shape) pending edit requests.
+  const req = ss.getSheetByName("Edit requests");
+  if (req) req.clear();
 }
 
 // One-time helper: recolors every existing shift in the ledger so the blocks
@@ -838,7 +922,7 @@ function setupStaffSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName("Staff");
   if (!sheet) sheet = ss.insertSheet("Staff", ss.getNumSheets()); // append; keep ledger at index 0
-  sheet.getRange(1, 1).setValue("Staff name").setFontWeight("bold");
+  sheet.getRange(1, 1, 1, 3).setValues([["Name", "Active", "Role"]]).setFontWeight("bold");
   sheet.setFrozenRows(1);
 }
 
@@ -852,14 +936,17 @@ function setupStaffSheet() {
 function _smokeTest(idOverride) {
   const payload = {
     submissionId: idOverride || ("test-" + Date.now()),
-    enteredBy: "TEST",
-    totalTips: 400,
-    people: [
-      { name: "Alice", timeIn: "10:00", timeOut: "16:00", trainee: false },
-      { name: "Bob", timeIn: "13:00", timeOut: "16:00", trainee: false },
-      { name: "Charlie", timeIn: "12:00", timeOut: "16:00", trainee: true, pct: 50 },
+    enteredBy: "TEST", shiftType: "dinner", totalTips: 300,
+    servers: [
+      { name: "Eve", slot: "D1630", trainee: false, pct: null },
+      { name: "Fay", slot: "D1800", trainee: false, pct: null },
     ],
+    chefs: [{ name: "Cho" }],
   };
+  const out = splitShift(payload);
+  if (out.kitchen !== 45 || out.chefs[0].amount !== 85 || out.servers[0].amount !== 100 || out.servers[1].amount !== 70) {
+    throw new Error("splitShift mirror drift: " + JSON.stringify(out));
+  }
   const fakeEvent = { postData: { contents: JSON.stringify(payload) } };
   Logger.log(doPost(fakeEvent).getContent());
 }
