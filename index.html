@@ -157,9 +157,7 @@
     <div id="chef-list"></div>
   </div>
 
-  <div class="preview" id="preview" aria-live="polite">
-    <div class="preview-row"><span data-i18n="preview_empty">Enter tips and times to see the split</span></div>
-  </div>
+  <div class="preview hidden" id="preview" aria-live="polite"></div>
 
   <button type="submit" class="submit-btn" id="submit-btn" data-i18n="submit">Submit shift</button>
 </form>
@@ -440,9 +438,11 @@ function updatePreview() {
   const ready = isFinite(totalTips) && totalTips >= 1 && servers.length >= 1 &&
     servers.every(s => s.name && getSlot(currentShift, s.slot));
   if (!ready) {
-    previewEl.innerHTML = `<div class="preview-row"><span>${escapeHtml(t("preview_hint"))}</span></div>`;
+    previewEl.innerHTML = "";
+    previewEl.classList.add("hidden");
     return;
   }
+  previewEl.classList.remove("hidden");
   if (!showSplit) {
     previewEl.innerHTML = `<div class="preview-row"><span>${escapeHtml(t("split_hidden_ready"))}</span></div>`;
     return;
