@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Shift Tip Entry</title>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#14223F">
+<meta name="theme-color" content="#9E3A2E">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="mobile-web-app-capable" content="yes">
@@ -14,9 +14,10 @@
 <meta name="apple-mobile-web-app-title" content="Matsuri Tips">
 <style>
   :root {
-    --indigo: #14223F; --indigo-soft: #26406F;
+    --brand: #9E3A2E; --brand-soft: #A84337;
     --gold: #D6A04C; --gold-light: #F4D389;
-    --ink: #1c2333; --muted: #6b7280; --line: #e4e7ee; --bg: #f4f5f8;
+    --ink: #2A2320; --muted: #8A7D6F; --line: #E7DECF; --bg: #F5EFE1;
+    --indigo: var(--brand); --indigo-soft: var(--brand-soft); /* lantern theme: legacy aliases -> red */
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -89,10 +90,10 @@
   .preview-row.total { border-top: 1px solid var(--line); margin-top: .5rem; padding-top: .5rem; font-weight: 600; }
   .submit-btn {
     width: 100%; padding: 1rem; font-size: 1.1rem; font-weight: 700;
-    background: linear-gradient(180deg, var(--gold-light), var(--gold)); color: #2a1c00;
+    background: linear-gradient(180deg, var(--brand-soft), var(--brand)); color: #fff;
     border: 0; border-radius: 10px; cursor: pointer;
   }
-  .submit-btn:disabled { background: #cfd3da; color: #8a8f98; cursor: not-allowed; }
+  .submit-btn:disabled { background: #d3c8b8; color: #9a8e7e; cursor: not-allowed; }
   .banner { padding: .75rem; border-radius: 6px; margin: 1rem 0; }
   .banner.error { background: #fee; color: #900; border: 1px solid #f99; }
   .banner.success { background: #efe; color: #060; border: 1px solid #9d9; }

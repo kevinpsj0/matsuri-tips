@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Matsuri Tips Admin</title>
 <link rel="manifest" href="admin.webmanifest">
-<meta name="theme-color" content="#14223F">
+<meta name="theme-color" content="#9E3A2E">
 <link rel="icon" href="icons/icon-admin.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon-admin.png">
 <meta name="mobile-web-app-capable" content="yes">
@@ -14,15 +14,16 @@
 <meta name="apple-mobile-web-app-title" content="Tips Admin">
 <style>
   :root {
-    --indigo: #14223F;
-    --indigo-soft: #26406F;
+    --brand: #9E3A2E;
+    --brand-soft: #A84337;
     --gold: #D6A04C;
     --gold-light: #F4D389;
-    --ink: #1c2333;
-    --muted: #6b7280;
-    --line: #e4e7ee;
-    --bg: #f4f5f8;
+    --ink: #2A2320;
+    --muted: #8A7D6F;
+    --line: #E7DECF;
+    --bg: #F5EFE1;
     --card: #ffffff;
+    --indigo: var(--brand); --indigo-soft: var(--brand-soft); /* lantern theme: legacy aliases -> red */
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -36,7 +37,7 @@
 
   /* PIN gate */
   #gate {
-    position: fixed; inset: 0; background: linear-gradient(160deg, #26406F, #0E1A33);
+    position: fixed; inset: 0; background: linear-gradient(160deg, var(--brand-soft), #7A2417);
     display: flex; align-items: center; justify-content: center; padding: 1.5rem; z-index: 20;
   }
   #gate.hidden { display: none; }
@@ -47,7 +48,7 @@
   }
   .gate-card img { width: 76px; height: 76px; display: block; margin: 0 auto .75rem; }
   .gate-card h1 { font-size: 1.15rem; margin: 0 0 .25rem; font-weight: 600; letter-spacing: .01em; }
-  .gate-card p { margin: 0 0 1.25rem; color: #c9d2e6; font-size: .9rem; }
+  .gate-card p { margin: 0 0 1.25rem; color: #F3E1CF; font-size: .9rem; }
   .gate-card input {
     width: 100%; padding: .85rem; font-size: 1.4rem; text-align: center; letter-spacing: .4em;
     border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; background: rgba(0,0,0,0.25);
@@ -56,8 +57,8 @@
   .gate-card input:focus { outline: 2px solid var(--gold); }
   .gate-card button {
     width: 100%; padding: .85rem; font-size: 1.05rem; font-weight: 600; cursor: pointer;
-    border: 0; border-radius: 10px; background: linear-gradient(180deg, var(--gold-light), var(--gold));
-    color: #2a1c00;
+    border: 0; border-radius: 10px; background: #fff;
+    color: var(--brand);
   }
   .gate-card button:disabled { opacity: .6; cursor: default; }
   .gate-err { color: #ffb4b4; font-size: .88rem; min-height: 1.2em; margin-top: .6rem; }
@@ -109,30 +110,30 @@
   .card .k { font-size: .76rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
   .card .v { font-size: 1.25rem; font-weight: 700; margin-top: .15rem; }
   .card.hero { grid-column: 1 / -1; background: linear-gradient(160deg, var(--indigo-soft), var(--indigo)); border: 0; color: #fff; }
-  .card.hero .k { color: #c9d2e6; }
-  .card.hero .v { font-size: 1.9rem; color: var(--gold-light); }
+  .card.hero .k { color: #F3E1CF; }
+  .card.hero .v { font-size: 1.9rem; color: #fff; }
 
   .panel {
     background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1rem; margin-top: .9rem;
   }
-  .panel h2 { font-size: .95rem; margin: 0 0 .75rem; color: var(--indigo); }
+  .panel h2 { font-size: .95rem; margin: 0 0 .75rem; color: var(--ink); }
 
   /* Bar chart */
   .chart { width: 100%; height: auto; display: block; }
-  .chart .bar { fill: var(--gold); }
-  .chart .bar:hover { fill: var(--gold-light); }
+  .chart .bar { fill: var(--brand); }
+  .chart .bar:hover { fill: var(--brand-soft); }
   .chart text { fill: var(--muted); font-size: 10px; }
 
   /* Calendar */
   .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .6rem; }
-  .cal-head .m { font-weight: 600; color: var(--indigo); }
+  .cal-head .m { font-weight: 600; color: var(--ink); }
   .cal-head button { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: .35rem .7rem; cursor: pointer; font-size: 1rem; }
   .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
   .cal-dow { text-align: center; font-size: .72rem; color: var(--muted); padding: .2rem 0; }
   .cal-cell { aspect-ratio: 1 / 1; border-radius: 7px; background: #f0f2f7; padding: .25rem; position: relative; overflow: hidden; }
   .cal-cell.empty { background: transparent; }
   .cal-cell .d { font-size: .72rem; color: var(--muted); }
-  .cal-cell .amt { font-size: .66rem; font-weight: 700; color: var(--indigo); position: absolute; left: .25rem; right: .25rem; bottom: .2rem; }
+  .cal-cell .amt { font-size: .66rem; font-weight: 700; color: var(--ink); position: absolute; left: .25rem; right: .25rem; bottom: .2rem; }
   .cal-cell.today { outline: 2px solid var(--gold); }
   .cal-cell[data-day] { cursor: pointer; }
   .cal-cell[data-day]:active { outline: 2px solid var(--indigo-soft); }
@@ -143,7 +144,7 @@
   .shift .top { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
   .shift .when { font-weight: 600; }
   .shift .by { color: var(--muted); font-size: .82rem; }
-  .shift .tot { font-weight: 700; color: var(--indigo); }
+  .shift .tot { font-weight: 700; color: var(--ink); }
   .tl-axis, .tl-row { display: grid; grid-template-columns: 4.8rem 1fr 4.6rem; align-items: center; gap: .4rem; }
   .tl-axis { margin-top: .6rem; }
   .tl-ticks { display: flex; justify-content: space-between; font-size: .68rem; color: var(--muted); }
@@ -158,8 +159,8 @@
   .dl-axis { margin: .2rem 0 .55rem; }
   .dl-rows { display: flex; flex-direction: column; gap: .45rem; }
   .dl-row .tl-track { height: 1.7rem; }
-  .dl-bar { position: absolute; top: 0; bottom: 0; background: var(--gold); border-radius: 5px; display: flex; align-items: center; justify-content: center; }
-  .dl-amt { color: #14223F; font-size: .8rem; font-weight: 700; white-space: nowrap; padding: 0 .3rem; }
+  .dl-bar { position: absolute; top: 0; bottom: 0; background: var(--brand); border-radius: 5px; display: flex; align-items: center; justify-content: center; }
+  .dl-amt { color: #fff; font-size: .8rem; font-weight: 700; white-space: nowrap; padding: 0 .3rem; }
 
   /* People table */
   .lb-row { padding: .6rem 0; border-bottom: 1px solid var(--line); }
@@ -173,7 +174,7 @@
   .lb-meta { font-size: .8rem; color: var(--muted); }
   .tip-pop { position: fixed; z-index: 50; background: var(--indigo); color: #fff; padding: .4rem .65rem; border-radius: 8px; font-size: .82rem; box-shadow: 0 6px 18px rgba(0,0,0,0.28); pointer-events: none; white-space: nowrap; }
   .dl-bar { cursor: pointer; }
-  .modal { position: fixed; inset: 0; background: rgba(20,34,63,0.5); display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 40; }
+  .modal { position: fixed; inset: 0; background: rgba(42,35,32,0.5); display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 40; }
   .modal.hidden { display: none; }
   .modal-card { background: #fff; border-radius: 12px; max-width: 480px; width: 100%; max-height: 80vh; overflow-y: auto; padding: 1rem; position: relative; }
   .modal-close { position: absolute; top: .3rem; right: .5rem; border: 0; background: transparent; font-size: 1.6rem; line-height: 1; cursor: pointer; color: var(--muted); }

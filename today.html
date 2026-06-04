@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Today's Shifts</title>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#14223F">
+<meta name="theme-color" content="#9E3A2E">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="mobile-web-app-capable" content="yes">
@@ -14,9 +14,10 @@
 <meta name="apple-mobile-web-app-title" content="Matsuri Tips">
 <style>
   :root {
-    --indigo: #14223F; --indigo-soft: #26406F;
+    --brand: #9E3A2E; --brand-soft: #A84337;
     --gold: #D6A04C; --gold-light: #F4D389;
-    --ink: #1c2333; --muted: #6b7280; --line: #e4e7ee; --bg: #f4f5f8;
+    --ink: #2A2320; --muted: #8A7D6F; --line: #E7DECF; --bg: #F5EFE1;
+    --indigo: var(--brand); --indigo-soft: var(--brand-soft); /* lantern theme: legacy aliases -> red */
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -40,7 +41,7 @@
   .shift { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: .85rem; margin-bottom: .6rem; }
   .shift-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
   .when { font-weight: 700; }
-  .tot { color: #14223F; }
+  .tot { color: var(--ink); }
   .by { color: #6b7280; font-size: .82rem; margin-top: .2rem; }
   .lines { margin-top: .55rem; border-top: 1px dashed #ddd; padding-top: .55rem; }
   .ln { display: flex; justify-content: space-between; padding: .15rem 0; font-size: .92rem; gap: .5rem; }
@@ -52,11 +53,11 @@
   .empty, .loading { text-align: center; color: #6b7280; padding: 2rem 1rem; }
   .toast {
     position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
-    background: #14223F; color: #fff; padding: .6rem 1rem; border-radius: 8px;
+    background: var(--ink); color: #fff; padding: .6rem 1rem; border-radius: 8px;
     font-size: .85rem; z-index: 60; box-shadow: 0 6px 16px rgba(0,0,0,0.2);
   }
   .toast.hidden { display: none; }
-  .modal { position: fixed; inset: 0; background: rgba(20,34,63,0.5); display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 50; }
+  .modal { position: fixed; inset: 0; background: rgba(42,35,32,0.5); display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 50; }
   .modal.hidden { display: none; }
   .modal-card { background: #fff; border-radius: 12px; max-width: 420px; width: 100%; padding: 1rem; max-height: 90vh; overflow-y: auto; }
   .modal-card h2 { font-size: 1.05rem; margin: 0 0 .3rem; }
@@ -72,7 +73,7 @@
   .err { color: #b00; font-size: .82rem; margin-top: .4rem; min-height: 1em; }
   .modal-actions { display: flex; gap: .5rem; margin-top: .8rem; }
   .modal-actions button { flex: 1; padding: .65rem; font-size: .95rem; border-radius: 8px; border: 0; cursor: pointer; }
-  .btn-primary { background: linear-gradient(180deg, var(--gold-light), var(--gold)); color: #2a1c00; font-weight: 700; }
+  .btn-primary { background: linear-gradient(180deg, var(--brand-soft), var(--brand)); color: #fff; font-weight: 700; }
   .btn-secondary { background: #eef0f5; color: var(--ink); }
   hr.sep { border: 0; border-top: 1px solid #eee; margin: .8rem 0; }
   .hint { color: #6b7280; font-size: .82rem; margin: 0 0 .5rem; }

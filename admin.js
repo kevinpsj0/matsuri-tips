@@ -434,7 +434,7 @@ function renderCalendar() {
     const amt = byDay[d] || 0;
     const iso = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const alpha = maxAmt > 0 && amt > 0 ? (0.18 + 0.62 * (amt / maxAmt)).toFixed(2) : 0;
-    const bg = amt > 0 ? `style="background: rgba(214,160,76, ${alpha})"` : "";
+    const bg = amt > 0 ? `style="background: rgba(158,58,46, ${alpha})"` : "";
     const todayCls = iso === today ? " today" : "";
     const amtTxt = amt > 0 ? `<div class="amt">${amt >= 1000 ? "$" + (amt / 1000).toFixed(1).replace(/\.0$/, "") + "k" : fmt(amt).replace(".00", "")}</div>` : "";
     cells += `<div class="cal-cell${todayCls}" data-day="${iso}"${bg ? " " + bg : ""}><div class="d">${d}</div>${amtTxt}</div>`;
