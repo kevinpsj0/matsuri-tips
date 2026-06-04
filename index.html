@@ -28,7 +28,7 @@
   .page-head h1 { margin: 0; }
   .view-today { color: #3b82f6; text-decoration: none; font-size: .88rem; white-space: nowrap; }
   label { display: block; font-weight: 600; margin: 1rem 0 .25rem; }
-  input[type=text], input[type=number], input[type=time] {
+  input[type=text], input[type=number], input[type=time], select {
     width: 100%;
     padding: .75rem;
     font-size: 1rem;
@@ -114,13 +114,24 @@
   <div class="field-error" id="err-entered-by"></div>
   <button type="button" id="switch-user" class="switch-user hidden">Not <span id="me-name"></span>?</button>
 
+  <label>Shift</label>
+  <div class="pct-buttons" id="shift-toggle">
+    <button type="button" data-shift="lunch">Lunch</button>
+    <button type="button" data-shift="dinner">Dinner</button>
+  </div>
+
   <label for="total-tips">Total tip amount ($)</label>
   <input type="number" id="total-tips" inputmode="decimal" step="0.01" min="1" max="100000">
   <div class="field-error" id="err-total-tips"></div>
 
-  <label>People on shift</label>
+  <label>Servers on shift</label>
   <div id="people-container"></div>
-  <button type="button" class="add-btn" id="add-person">+ Add person</button>
+  <button type="button" class="add-btn" id="add-person">+ Add server</button>
+
+  <div id="chef-section" class="hidden">
+    <label>Chefs on shift</label>
+    <div id="chef-list"></div>
+  </div>
 
   <div class="preview" id="preview" aria-live="polite">
     <div class="preview-row"><span>Enter tips and times to see the split</span></div>
@@ -148,15 +159,58 @@ function escapeHtml(s) {
   ));
 }
 
+// ---- shift type + slots ----
+// Declared up here (before the bottom init calls) so createPersonRow ->
+// populateSlotSelect can read currentShift without a temporal-dead-zone error.
+let currentShift = (new Date().getHours() * 60 + new Date().getMinutes()) < (18 * 60 + 30) ? "lunch" : "dinner";
+let chefRoster = []; // [{name}] from the staff roster (role=Chef)
+
+function populateSlotSelect(sel, selectedId) {
+  const slots = SHIFT_SLOTS[currentShift] || [];
+  sel.innerHTML = '<option value="">Pick a time</option>' +
+    slots.map(s => `<option value="${s.id}"${s.id === selectedId ? " selected" : ""}>${escapeHtml(s.label)}</option>`).join("");
+}
+
+const shiftToggle = document.getElementById("shift-toggle");
+function renderShiftToggle() {
+  shiftToggle.querySelectorAll("button").forEach(b => b.classList.toggle("selected", b.dataset.shift === currentShift));
+}
+shiftToggle.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-shift]");
+  if (!btn) return;
+  currentShift = btn.dataset.shift;
+  renderShiftToggle();
+  peopleContainer.querySelectorAll(".p-slot").forEach(sel => populateSlotSelect(sel, sel.value && getSlot(currentShift, sel.value) ? sel.value : ""));
+  updatePreview();
+});
+
+function renderChefList() {
+  const sec = document.getElementById("chef-section");
+  const list = document.getElementById("chef-list");
+  if (!chefRoster.length) { sec.classList.add("hidden"); list.innerHTML = ""; return; }
+  sec.classList.remove("hidden");
+  list.innerHTML = chefRoster.map((c) =>
+    `<label class="toggle-row"><input type="checkbox" class="chef-cb" value="${escapeHtml(c.name)}"><span>${escapeHtml(c.name)}</span></label>`
+  ).join("");
+  list.querySelectorAll(".chef-cb").forEach(cb => cb.addEventListener("change", updatePreview));
+}
+
+function readChefs() {
+  return Array.from(document.querySelectorAll(".chef-cb")).filter(cb => cb.checked).map(cb => ({ name: cb.value }));
+}
+
 // ---- staff dropdown (custom combobox) ----
-const STAFF_KEY = "matsuri_staff";
+const STAFF_KEY = "matsuri_staff_v2";
 const ME_KEY = "matsuri_me";
 function getMe() { try { return localStorage.getItem(ME_KEY) || ""; } catch (e) { return ""; } }
 function setMe(name) { try { name ? localStorage.setItem(ME_KEY, name) : localStorage.removeItem(ME_KEY); } catch (e) {} }
 let staffNames = [];
 
-function setStaffNames(names) {
-  staffNames = Array.isArray(names) ? names : [];
+function setStaff(list) {
+  const arr = Array.isArray(list) ? list : [];
+  staffNames = arr.filter(s => (s.role || "Server") !== "Chef").map(s => s.name);
+  chefRoster = arr.filter(s => (s.role || "Server") === "Chef").map(s => ({ name: s.name }));
+  renderChefList();
   const a = document.activeElement;
   if (a && a.parentElement && a.parentElement.classList.contains("combo")) renderComboList(a);
 }
@@ -188,9 +242,10 @@ function attachCombo(input) {
 }
 
 function loadStaff() {
+  try { localStorage.removeItem("matsuri_staff"); } catch (e) {} // drop legacy string-array cache
   try {
     const cached = JSON.parse(localStorage.getItem(STAFF_KEY) || "[]");
-    if (Array.isArray(cached) && cached.length) setStaffNames(cached);
+    if (Array.isArray(cached) && cached.length && typeof cached[0] === "object") setStaff(cached);
   } catch (e) {}
   fetch(ENDPOINT_URL, {
     method: "POST",
@@ -201,7 +256,7 @@ function loadStaff() {
     .then(r => r.json())
     .then(data => {
       if (data && data.ok && Array.isArray(data.staff)) {
-        setStaffNames(data.staff);
+        setStaff(data.staff);
         localStorage.setItem(STAFF_KEY, JSON.stringify(data.staff));
       }
     })
@@ -221,10 +276,8 @@ function createPersonRow() {
       '<input type="text" class="p-name" autocomplete="off" maxlength="40" placeholder="Name">' +
       '<div class="combo-list hidden"></div>' +
     '</div>' +
-    '<div class="times">' +
-      '<div class="time-field"><label>Time in</label><input type="time" class="p-in"></div>' +
-      '<div class="time-field"><label>Time out</label><input type="time" class="p-out"></div>' +
-    '</div>' +
+    '<label>Time slot</label>' +
+    '<select class="p-slot"></select>' +
     '<div class="toggle-row">' +
       '<label class="switch"><input type="checkbox" class="p-trainee"><span class="slider"></span></label>' +
       '<span>Trainee</span>' +
@@ -239,8 +292,9 @@ function createPersonRow() {
   const nameInput = row.querySelector(".p-name");
   nameInput.addEventListener("input", updatePreview);
   attachCombo(nameInput);
-  row.querySelector(".p-in").addEventListener("input", updatePreview);
-  row.querySelector(".p-out").addEventListener("input", updatePreview);
+  const slotSel = row.querySelector(".p-slot");
+  populateSlotSelect(slotSel);
+  slotSel.addEventListener("change", updatePreview);
 
   const traineeToggle = row.querySelector(".p-trainee");
   const pctButtons = row.querySelector(".pct-buttons");
@@ -278,7 +332,7 @@ function relabelPeople() {
   const rows = peopleContainer.querySelectorAll(".person");
   const showRemove = rows.length > 1;
   rows.forEach((row, i) => {
-    row.querySelector(".person-title").textContent = "Person " + (i + 1);
+    row.querySelector(".person-title").textContent = "Server " + (i + 1);
     row.querySelector(".remove-person").classList.toggle("hidden", !showRemove);
   });
 }
@@ -287,40 +341,38 @@ function updateAddButton() {
   addPersonBtn.disabled = peopleContainer.querySelectorAll(".person").length >= 12;
 }
 
-function readPeople() {
+function readServers() {
   return Array.from(peopleContainer.querySelectorAll(".person")).map(row => {
     const trainee = row.querySelector(".p-trainee").checked;
     const sel = row.querySelector(".pct-buttons button.selected");
     return {
       name: row.querySelector(".p-name").value.trim(),
-      timeIn: row.querySelector(".p-in").value,
-      timeOut: row.querySelector(".p-out").value,
+      slot: row.querySelector(".p-slot").value,
       trainee: trainee,
-      pct: sel ? parseInt(sel.dataset.pct, 10) : 50,
+      pct: trainee ? (sel ? parseInt(sel.dataset.pct, 10) : 50) : null,
     };
   });
 }
 
 function updatePreview() {
   const totalTips = parseFloat(totalTipsEl.value);
-  const people = readPeople();
-  const ready = isFinite(totalTips) && totalTips >= 1 && people.length >= 1 &&
-    people.every(p => p.timeIn && p.timeOut && minutesWorked(p.timeIn, p.timeOut) > 0);
+  const servers = readServers();
+  const chefs = readChefs();
+  const ready = isFinite(totalTips) && totalTips >= 1 && servers.length >= 1 &&
+    servers.every(s => s.name && getSlot(currentShift, s.slot));
   if (!ready) {
-    previewEl.innerHTML = `<div class="preview-row"><span>Enter tips and times to see the split</span></div>`;
+    previewEl.innerHTML = `<div class="preview-row"><span>Enter tips, servers, and slots to see the split</span></div>`;
     return;
   }
-  const splits = splitShift({ totalTips, people });
-  const rows = [];
-  rows.push(`<div class="preview-row"><span>Kitchen</span><span>${fmt(splits.kitchen)}</span></div>`);
-  rows.push(`<div class="preview-row"><span>Chefs</span><span>${fmt(splits.chefs)}</span></div>`);
-  splits.people.forEach((p, i) => {
-    const base = people[i].name || ("Person " + (i + 1));
-    const label = base + (p.trainee ? ` (${p.pct}% trainee)` : "");
+  const splits = splitShift({ shiftType: currentShift, totalTips, servers, chefs });
+  const rows = [`<div class="preview-row"><span>Kitchen</span><span>${fmt(splits.kitchen)}</span></div>`];
+  splits.chefs.forEach(c => rows.push(`<div class="preview-row"><span>${escapeHtml(c.name)} (chef)</span><span>${fmt(c.amount)}</span></div>`));
+  splits.servers.forEach(p => {
+    const label = (p.name || "Server") + (p.trainee ? ` (${p.pct}% trainee)` : "");
     rows.push(`<div class="preview-row"><span>${escapeHtml(label)} · ${fmtHours(p.hours)}</span><span>${fmt(p.amount)}</span></div>`);
   });
-  const sum = splits.kitchen + splits.chefs + splits.people.reduce((s, p) => s + p.amount, 0);
-  rows.push(`<div class="preview-row total"><span>Total</span><span>${fmt(sum)}</span></div>`);
+  const total = splits.kitchen + splits.chefs.reduce((s, c) => s + c.amount, 0) + splits.servers.reduce((s, p) => s + p.amount, 0);
+  rows.push(`<div class="preview-row total"><span>Total</span><span>${fmt(total)}</span></div>`);
   previewEl.innerHTML = rows.join("");
 }
 
@@ -357,6 +409,7 @@ switchUserBtn.addEventListener("click", () => {
 totalTipsEl.addEventListener("input", updatePreview);
 addPersonBtn.addEventListener("click", addPerson);
 attachCombo(enteredByEl);
+renderShiftToggle();
 addPerson();
 applyRememberedName();
 updatePreview();
@@ -412,12 +465,10 @@ function validateClient() {
   Array.from(peopleContainer.querySelectorAll(".person")).forEach(row => {
     const err = row.querySelector(".field-error");
     const name = row.querySelector(".p-name").value.trim();
-    const tin = row.querySelector(".p-in").value;
-    const tout = row.querySelector(".p-out").value;
+    const slot = row.querySelector(".p-slot").value;
     let msg = "";
     if (!name) msg = "Name required";
-    else if (!tin || !tout) msg = "Enter time in and out";
-    else if (minutesWorked(tin, tout) <= 0) msg = "Clock-out must be after clock-in";
+    else if (!getSlot(currentShift, slot)) msg = "Pick a time slot";
     if (err) err.textContent = msg;
     if (msg) ok = false;
   });
@@ -428,8 +479,10 @@ function buildPayload() {
   return {
     submissionId,
     enteredBy: enteredByEl.value.trim(),
+    shiftType: currentShift,
     totalTips: parseFloat(totalTipsEl.value),
-    people: readPeople(),
+    servers: readServers(),
+    chefs: readChefs(),
   };
 }
 
@@ -472,12 +525,11 @@ async function submitShift() {
 
 function renderConfirmation(response) {
   const splits = response.splits;
-  const rows = [];
-  rows.push(`<strong>${response.dedup ? "Previously recorded shift" : "Shift recorded"}</strong>`);
+  const rows = [`<strong>${response.dedup ? "Previously recorded shift" : "Shift recorded"}</strong>`];
   rows.push(`<div class="preview-row"><span>Kitchen</span><span>${fmt(splits.kitchen)}</span></div>`);
-  rows.push(`<div class="preview-row"><span>Chefs</span><span>${fmt(splits.chefs)}</span></div>`);
-  (splits.people || []).forEach(p => {
-    const label = (p.name || "Person") + (p.trainee ? ` (${p.pct}% trainee)` : "");
+  (splits.chefs || []).forEach(c => rows.push(`<div class="preview-row"><span>${escapeHtml(c.name)} (chef)</span><span>${fmt(c.amount)}</span></div>`));
+  (splits.servers || []).forEach(p => {
+    const label = (p.name || "Server") + (p.trainee ? ` (${p.pct}% trainee)` : "");
     rows.push(`<div class="preview-row"><span>${escapeHtml(label)} · ${fmtHours(p.hours)}</span><span>${fmt(p.amount)}</span></div>`);
   });
   rows.push(`<button type="button" id="reset-btn" class="submit-btn" style="margin-top:1rem">Record another shift</button>`);
@@ -495,6 +547,7 @@ function resetForm() {
   peopleContainer.innerHTML = "";
   addPerson();
   applyRememberedName();
+  renderChefList();
   clearAllErrors();
   submissionId = newSubmissionId();
   updatePreview();
