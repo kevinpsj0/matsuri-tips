@@ -312,41 +312,25 @@ function renderSummary(rows, start, end) {
   return cards + chart;
 }
 
+// Single-day summary: one combined bar split into a Lunch segment and a Dinner
+// segment, each sized by that shift's total tips. Tap a segment for its detail.
 function dayTimelineHtml(rows) {
-  const shifts = {};
+  const byShift = {};
   for (const r of rows) {
     const id = r.submissionId || (r.date + r.time);
-    if (!shifts[id]) shifts[id] = { id: id, totalTips: r.totalTips, ins: [], outs: [] };
-    const ci = clockMins(r.timeIn), co = clockMins(r.timeOut);
-    if (ci != null) shifts[id].ins.push(ci);
-    if (co != null) shifts[id].outs.push(co);
+    if (!byShift[id]) byShift[id] = { id: id, shift: r.shift || "", totalTips: r.totalTips || 0, time: r.time || "" };
   }
-  const list = Object.values(shifts).map((s) => ({
-    id: s.id,
-    totalTips: s.totalTips,
-    start: s.ins.length ? Math.min.apply(null, s.ins) : null,
-    end: s.outs.length ? Math.max.apply(null, s.outs) : null,
-  }));
-  const timed = list.filter((s) => s.start != null && s.end != null && s.end > s.start);
-  if (!timed.length) {
-    const series = list.map((s, i) => ({ label: t("shift_n", { n: i + 1 }), value: s.totalTips }));
-    return buildBarChart(series);
-  }
-  const axisMin = Math.min.apply(null, timed.map((s) => s.start));
-  const axisMax = Math.max.apply(null, timed.map((s) => s.end));
-  const span = axisMax - axisMin;
-  const ticks = [0, 1, 2, 3].map((i) => `<span>${fmtClock(Math.round(axisMin + span * i / 3))}</span>`).join("");
-  const sorted = list.slice().sort((a, b) => (a.start || 0) - (b.start || 0));
-  const bars = sorted.map((s) => {
-    const hasBar = s.start != null && s.end != null && s.end > s.start && span > 0;
-    const rawWidth = hasBar ? (s.end - s.start) / span * 100 : 100;
-    const w = Math.max(rawWidth, 14); // keep the amount label readable on short shifts
-    const rawLeft = hasBar ? (s.start - axisMin) / span * 100 : 0;
-    const left = Math.min(rawLeft, 100 - w); // keep the bar within the track
-    const range = (s.start != null && s.end != null) ? `${fmtClock(s.start)}–${fmtClock(s.end)}` : "";
-    return `<div class="dl-row"><div class="tl-track"><div class="dl-bar" data-sid="${escapeHtml(s.id)}" style="left:${left.toFixed(1)}%;width:${w.toFixed(1)}%" title="${range}"><span class="dl-amt">${fmt(s.totalTips)}</span></div></div></div>`;
+  const rank = (s) => { const v = String(s.shift).toLowerCase(); return v === "lunch" ? 0 : v === "dinner" ? 1 : 2; };
+  const shifts = Object.values(byShift).sort((a, b) => rank(a) - rank(b) || (a.time || "").localeCompare(b.time || ""));
+  const sum = shifts.reduce((acc, s) => acc + (s.totalTips || 0), 0);
+  if (!sum) return `<div class="empty-state">${escapeHtml(t("no_data"))}</div>`;
+  const segs = shifts.map((s) => {
+    const w = Math.max(s.totalTips / sum * 100, 0);
+    const cls = String(s.shift).toLowerCase() === "lunch" ? "day-seg lunch" : "day-seg dinner";
+    const label = `${escapeHtml(localizeShiftName(s.shift))} ${fmt(s.totalTips)}`;
+    return `<div class="${cls}" data-sid="${escapeHtml(s.id)}" style="width:${w.toFixed(1)}%" title="${label}"><span class="day-seg-lbl">${label}</span></div>`;
   }).join("");
-  return `<div class="dl-axis"><div class="tl-ticks">${ticks}</div></div><div class="dl-rows">${bars}</div>`;
+  return `<div class="day-combined">${segs}</div>`;
 }
 
 function openShiftModal(sid) {
@@ -718,7 +702,7 @@ function wireEvents() {
     if (e.target.closest("[data-cal-back]")) { calDay = null; render(); return; }
     const cell = e.target.closest(".cal-cell[data-day]");
     if (cell) { calDay = cell.getAttribute("data-day"); render(); return; }
-    const dlbar = e.target.closest(".dl-bar");
+    const dlbar = e.target.closest("[data-sid]");
     if (dlbar && dlbar.dataset.sid) { openShiftModal(dlbar.dataset.sid); return; }
     const resolveBtn = e.target.closest("[data-resolve]");
     if (resolveBtn && resolveBtn.dataset.rid) { resolveRequest(resolveBtn.dataset.rid, resolveBtn.dataset.resolve); return; }
