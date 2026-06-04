@@ -359,8 +359,6 @@ content.addEventListener("click", (e) => {
 document.getElementById("req-cancel").addEventListener("click", () => modal.classList.add("hidden"));
 modal.addEventListener("click", (e) => { if (e.target === modal) modal.classList.add("hidden"); });
 
-function isValidTime(t) { return typeof t === "string" && /^\d{2}:\d{2}$/.test(t); }
-function minutes(t) { const [h, m] = t.split(":").map(Number); return h * 60 + m; }
 
 function buildProposed() {
   const enteredBy = editBy.value.trim();
