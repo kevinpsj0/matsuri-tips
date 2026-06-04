@@ -82,6 +82,14 @@ const appEl = document.getElementById("app");
 const pinInput = document.getElementById("pin-input");
 const pinSubmit = document.getElementById("pin-submit");
 const gateErr = document.getElementById("gate-err");
+const gateChecking = document.getElementById("gate-checking");
+const gateForm = document.getElementById("gate-form");
+
+// While a saved PIN is auto-verifying we show a brief "Checking..." line instead
+// of the PIN box, so the user doesn't think the app forgot them and re-enter it.
+// init() picks the starting state so neither element flashes on load.
+function showChecking() { gateForm.classList.add("hidden"); gateChecking.classList.remove("hidden"); }
+function showGateForm() { gateChecking.classList.add("hidden"); gateForm.classList.remove("hidden"); }
 
 function showGateErr(msg) { gateErr.textContent = msg || ""; }
 function setGateBusy(b) { pinSubmit.disabled = b; pinSubmit.textContent = b ? "Checking..." : "Unlock"; }
@@ -95,7 +103,9 @@ async function tryPin(pin, silent) {
     data = await fetchData(pin);
   } catch (e) {
     setGateBusy(false);
+    showGateForm();
     if (!silent) showGateErr("Could not connect. Check your internet and try again.");
+    focusPin();
     return;
   }
   setGateBusy(false);
@@ -109,6 +119,7 @@ async function tryPin(pin, silent) {
     loadRequests().then(() => { if (activeTab === "requests") render(); });
   } else {
     localStorage.removeItem(PIN_KEY);
+    showGateForm();
     if (!silent) showGateErr((data && data.error) || "Wrong PIN.");
     focusPin();
   }
@@ -723,7 +734,7 @@ function init() {
   wireEvents();
   buildDayPresets();
   const stored = localStorage.getItem(PIN_KEY);
-  if (stored) tryPin(stored, true); else focusPin();
+  if (stored) { showChecking(); tryPin(stored, true); } else { showGateForm(); focusPin(); }
 }
 
 document.addEventListener("DOMContentLoaded", init);

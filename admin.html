@@ -62,6 +62,7 @@
   }
   .gate-card button:disabled { opacity: .6; cursor: default; }
   .gate-err { color: #ffb4b4; font-size: .88rem; min-height: 1.2em; margin-top: .6rem; }
+  .gate-checking { color: #F3E1CF; font-size: .9rem; margin: 0; padding: .85rem 0; }
 
   /* Header */
   header.bar {
@@ -220,11 +221,14 @@
   <div class="gate-card">
     <img src="icons/icon-admin.svg" alt="">
     <h1>Matsuri Tips Admin</h1>
-    <p>Enter your access PIN.</p>
-    <input id="pin-input" type="password" inputmode="numeric" autocomplete="off"
-           maxlength="10" placeholder="------" aria-label="Access PIN">
-    <button id="pin-submit" type="button">Unlock</button>
-    <div class="gate-err" id="gate-err"></div>
+    <p id="gate-checking" class="gate-checking hidden">Checking saved PIN...</p>
+    <div id="gate-form" class="hidden">
+      <p>Enter your access PIN.</p>
+      <input id="pin-input" type="password" inputmode="numeric" autocomplete="off"
+             maxlength="10" placeholder="------" aria-label="Access PIN">
+      <button id="pin-submit" type="button">Unlock</button>
+      <div class="gate-err" id="gate-err"></div>
+    </div>
   </div>
 </div>
 
