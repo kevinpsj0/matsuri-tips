@@ -249,12 +249,12 @@ var I18N = {
     edit_sent_toast: "수정 요청을 사장님께 보냈습니다.",
 
     // admin
-    gate_title: "Matsuri 팁 관리자",
+    gate_title: "Matsuri 팁 관리",
     gate_checking: "저장된 PIN 확인 중...",
     gate_prompt: "접속 PIN을 입력하세요.",
     unlock: "잠금 해제",
     pin_aria: "접속 PIN",
-    admin_title: "팁 관리자",
+    admin_title: "팁 관리",
     sheet: "시트",
     sign_out: "로그아웃",
     period_today: "오늘",

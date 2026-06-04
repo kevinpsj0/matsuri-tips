@@ -303,13 +303,40 @@ function renderSummary(rows, start, end) {
   if (start === end) {
     chart = `<div class="panel"><h2>${escapeHtml(t("panel_day_shifts"))}</h2>${dayTimelineHtml(rows)}</div>`;
   } else {
-    const days = enumerateDays(start, end);
-    const byDay = {};
-    for (const r of rows) byDay[r.date] = (byDay[r.date] || 0) + r.amount;
-    const series = days.map((d) => ({ label: String(isoParts(d).d), value: byDay[d] || 0 }));
-    chart = `<div class="panel"><h2>${escapeHtml(t("panel_daily_total"))}</h2>${buildBarChart(series)}</div>`;
+    chart = `<div class="panel"><h2>${escapeHtml(t("panel_daily_total"))}</h2>${multiDayBarsHtml(rows)}</div>`;
   }
   return cards + chart;
+}
+
+// Multi-day summary: one horizontal bar per day (busiest day = full width),
+// each split into Lunch/Dinner segments, matching the single-day view.
+function multiDayBarsHtml(rows) {
+  const shiftTotals = {};
+  for (const r of rows) {
+    const id = r.submissionId || (r.date + r.time);
+    if (!shiftTotals[id]) shiftTotals[id] = { id: id, date: r.date, shift: String(r.shift || "").toLowerCase(), totalTips: r.totalTips || 0 };
+  }
+  const byDay = {};
+  for (const s of Object.values(shiftTotals)) {
+    if (!byDay[s.date]) byDay[s.date] = { date: s.date, total: 0, lunch: null, dinner: null };
+    byDay[s.date].total += s.totalTips;
+    if (s.shift === "lunch") byDay[s.date].lunch = { amt: s.totalTips, id: s.id };
+    else if (s.shift === "dinner") byDay[s.date].dinner = { amt: s.totalTips, id: s.id };
+  }
+  const list = Object.values(byDay).filter((d) => d.total > 0).sort((a, b) => a.date.localeCompare(b.date));
+  if (!list.length) return `<div class="empty-state">${escapeHtml(t("no_data"))}</div>`;
+  const max = Math.max(1, ...list.map((d) => d.total));
+  const seg = (part, cls) => {
+    if (!part || part.amt <= 0) return "";
+    const w = part.amt / max * 100;
+    return `<div class="day-seg ${cls}" data-sid="${escapeHtml(part.id)}" style="width:${w.toFixed(1)}%" title="${fmt(part.amt)}"></div>`;
+  };
+  const rowsHtml = list.map((d) => {
+    const p = isoParts(d.date);
+    const label = new Date(p.y, p.m - 1, p.d).toLocaleDateString(locale(), { month: "numeric", day: "numeric" });
+    return `<div class="mday"><span class="mday-label">${escapeHtml(label)}</span><div class="mday-track">${seg(d.lunch, "lunch")}${seg(d.dinner, "dinner")}</div><span class="mday-amt">${fmt(d.total)}</span></div>`;
+  }).join("");
+  return `<div class="mday-list">${rowsHtml}</div>`;
 }
 
 // Single-day summary: one combined bar split into a Lunch segment and a Dinner
@@ -389,30 +416,6 @@ function renderRequests() {
       </div>
     </div>`;
   }).join("");
-}
-
-function buildBarChart(series) {
-  const W = 600, H = 200, padTop = 14, padBottom = 26, padX = 8;
-  const plotH = H - padTop - padBottom;
-  const n = series.length;
-  if (!n) return `<div class="empty-state">${escapeHtml(t("no_data"))}</div>`;
-  const max = Math.max(1, ...series.map((s) => s.value));
-  const slot = (W - 2 * padX) / n;
-  const baseY = padTop + plotH;
-  const showLabels = n <= 16;
-  let bars = "";
-  series.forEach((s, i) => {
-    const bw = slot * 0.66;
-    const bx = padX + i * slot + (slot - bw) / 2;
-    const bh = s.value > 0 ? Math.max(1, (s.value / max) * plotH) : 0;
-    const by = baseY - bh;
-    bars += `<rect class="bar" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2"><title>${escapeHtml(s.label)}: ${fmt(s.value)}</title></rect>`;
-    if (showLabels) bars += `<text x="${(bx + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${escapeHtml(s.label)}</text>`;
-  });
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeHtml(t("chart_aria"))}">
-    <line x1="${padX}" y1="${baseY}" x2="${W - padX}" y2="${baseY}" stroke="#e4e7ee" />
-    ${bars}
-  </svg>`;
 }
 
 function renderCalendar() {

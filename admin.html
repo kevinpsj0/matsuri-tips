@@ -170,6 +170,13 @@
   .day-seg.dinner { background: var(--brand); color: #fff; }
   .day-seg-lbl { overflow: hidden; text-overflow: ellipsis; }
 
+  /* Multi-day summary: one segmented bar per day */
+  .mday-list { display: flex; flex-direction: column; gap: .35rem; }
+  .mday { display: grid; grid-template-columns: 3rem 1fr 4.6rem; align-items: center; gap: .5rem; }
+  .mday-label { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+  .mday-track { height: 1.5rem; background: #eef0f5; border-radius: 5px; overflow: hidden; display: flex; }
+  .mday-amt { text-align: right; font-size: .85rem; font-variant-numeric: tabular-nums; color: var(--ink); }
+
   /* People table */
   .lb-row { padding: .6rem 0; border-bottom: 1px solid var(--line); }
   .lb-row:last-child { border-bottom: 0; }
