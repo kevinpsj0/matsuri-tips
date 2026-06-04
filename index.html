@@ -51,7 +51,8 @@
   }
   input:focus, select:focus { outline: 2px solid var(--gold); outline-offset: -1px; }
   input[type=checkbox] { accent-color: var(--indigo); }
-  input.error { border-color: #b00; }
+  input.error, select.error { border-color: #b00; }
+  .name-other { margin-top: .5rem; }
   .field-error { color: #b00; font-size: .85rem; margin-top: .25rem; min-height: 1em; }
   .toggle-row { display: flex; align-items: center; gap: .75rem; margin: 1rem 0 .25rem; }
   .toggle-row span { font-weight: 600; }
@@ -89,25 +90,21 @@
   }
   .preview-row { display: flex; justify-content: space-between; padding: .25rem 0; gap: .5rem; }
   .preview-row.total { border-top: 1px solid var(--line); margin-top: .5rem; padding-top: .5rem; font-weight: 600; }
+  .submit-bar {
+    position: sticky; bottom: 0; z-index: 10;
+    margin: 1.25rem -1rem 0; padding: .7rem 1rem calc(.7rem + env(safe-area-inset-bottom, 0px));
+    background: var(--bg); box-shadow: 0 -4px 14px rgba(42,35,32,0.10);
+  }
   .submit-btn {
     width: 100%; padding: 1rem; font-size: 1.1rem; font-weight: 700;
     background: linear-gradient(180deg, var(--brand-soft), var(--brand)); color: #fff;
-    border: 0; border-radius: 10px; cursor: pointer; margin-top: 1.25rem;
+    border: 0; border-radius: 10px; cursor: pointer;
   }
   .submit-btn:disabled { background: #d3c8b8; color: #9a8e7e; cursor: not-allowed; }
   .banner { padding: .75rem; border-radius: 6px; margin: 1rem 0; }
   .banner.error { background: #fee; color: #900; border: 1px solid #f99; }
   .banner.success { background: #efe; color: #060; border: 1px solid #9d9; }
-  .combo { position: relative; }
-  .combo-list {
-    position: absolute; top: 100%; left: 0; right: 0; z-index: 30;
-    background: #fff; border: 1px solid #bbb; border-top: 0;
-    border-radius: 0 0 6px 6px; max-height: 240px; overflow-y: auto;
-    box-shadow: 0 8px 22px rgba(0,0,0,0.16);
-  }
-  .combo-list .opt { padding: .75rem; cursor: pointer; border-top: 1px solid #eee; }
-  .combo-list .opt:first-child { border-top: 0; }
-  .combo-list .opt:active, .combo-list .opt.active { background: #eef0f5; }
+  .conf-summary { color: #2f6f2f; font-size: .9rem; margin: .15rem 0 .6rem; font-weight: 600; }
   .hidden { display: none !important; }
   .switch-user { display: inline-block; background: none; border: 0; color: var(--indigo); font-size: .82rem; padding: .15rem 0; margin-top: .1rem; cursor: pointer; text-decoration: underline; }
   .lang-toggle { display: flex; gap: 2px; background: rgba(255,255,255,0.16); border-radius: 8px; padding: 2px; flex: none; }
@@ -131,10 +128,8 @@
 
 <form id="shift-form" novalidate>
   <label for="entered-by" data-i18n="your_name">Your name</label>
-  <div class="combo">
-    <input type="text" id="entered-by" autocomplete="off" maxlength="60">
-    <div class="combo-list hidden"></div>
-  </div>
+  <select id="entered-by"></select>
+  <input type="text" id="entered-by-other" class="name-other hidden" autocomplete="off" maxlength="60" data-i18n-ph="ph_name" placeholder="Name">
   <div class="field-error" id="err-entered-by"></div>
   <button type="button" id="switch-user" class="switch-user hidden"></button>
 
@@ -160,7 +155,9 @@
 
   <div class="preview hidden" id="preview" aria-live="polite"></div>
 
-  <button type="submit" class="submit-btn" id="submit-btn" data-i18n="submit">Submit shift</button>
+  <div class="submit-bar">
+    <button type="submit" class="submit-btn" id="submit-btn" data-i18n="submit">Submit shift</button>
+  </div>
 </form>
 
 <script src="i18n.js"></script>
@@ -170,9 +167,34 @@ const ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbyvxUBapgpbZpf-ndo
 
 const totalTipsEl = document.getElementById("total-tips");
 const enteredByEl = document.getElementById("entered-by");
+const enteredByOtherEl = document.getElementById("entered-by-other");
 const peopleContainer = document.getElementById("people-container");
 const addPersonBtn = document.getElementById("add-person");
 const previewEl = document.getElementById("preview");
+
+// Name fields are a staff dropdown with an "Other..." escape hatch that reveals
+// a free-text input for someone not on the roster.
+const OTHER_NAME = "__other__";
+function nameValueOf(sel, otherInput) {
+  return sel.value === OTHER_NAME ? otherInput.value.trim() : sel.value;
+}
+function rowName(row) {
+  return nameValueOf(row.querySelector(".p-name"), row.querySelector(".p-name-other"));
+}
+// Set a name field to a value: rebuild its options and show/hide the Other input.
+function setNameField(sel, otherInput, value) {
+  populateNameSelect(sel, value);
+  otherInput.classList.toggle("hidden", value !== OTHER_NAME);
+}
+function wireNameField(sel, otherInput) {
+  sel.addEventListener("change", () => {
+    const isOther = sel.value === OTHER_NAME;
+    otherInput.classList.toggle("hidden", !isOther);
+    if (isOther) otherInput.focus();
+    updatePreview();
+  });
+  otherInput.addEventListener("input", updatePreview);
+}
 
 function fmt(n) { return "$" + (n || 0).toFixed(2); }
 function fmtHours(h) { const mins = Math.round((h || 0) * 60); return Math.floor(mins / 60) + "h " + (mins % 60) + "m"; }
@@ -181,6 +203,17 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => (
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
   ));
+}
+
+// POST a JSON payload to the Apps Script endpoint and return the parsed reply.
+async function postJSON(payload) {
+  const res = await fetch(ENDPOINT_URL, {
+    method: "POST", mode: "cors",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
 }
 
 // ---- shift type + slots ----
@@ -276,7 +309,7 @@ function readChefs() {
   return Array.from(document.querySelectorAll(".chef-cb")).filter(cb => cb.checked).map(cb => ({ name: cb.value }));
 }
 
-// ---- staff dropdown (custom combobox) ----
+// ---- staff dropdown ----
 const STAFF_KEY = "matsuri_staff_v2";
 const ME_KEY = "matsuri_me";
 function getMe() { try { return localStorage.getItem(ME_KEY) || ""; } catch (e) { return ""; } }
@@ -289,48 +322,26 @@ function setStaff(list) {
   chefRoster = arr.filter(s => (s.role || "Server") === "Chef").map(s => ({ name: s.name }));
   renderChefList();
   repopulateNameSelects();
-  const a = document.activeElement;
-  if (a && a.parentElement && a.parentElement.classList.contains("combo")) renderComboList(a);
 }
 
-// Server name is picked from the active staff roster (a native select, like the
-// time slot). Keep any current value that isn't on the roster so it isn't lost.
+// Name fields are a native select of active staff, plus a placeholder and an
+// "Other..." option. Keep any current value that isn't on the roster so it
+// isn't lost when the roster (re)loads.
 function populateNameSelect(sel, selectedValue) {
   const cur = (selectedValue != null) ? selectedValue : sel.value;
   const names = staffNames.slice();
-  if (cur && names.indexOf(cur) === -1) names.unshift(cur);
+  if (cur && cur !== OTHER_NAME && names.indexOf(cur) === -1) names.unshift(cur);
   sel.innerHTML = `<option value="">${escapeHtml(t("pick_name"))}</option>` +
-    names.map(n => `<option value="${escapeHtml(n)}"${n === cur ? " selected" : ""}>${escapeHtml(n)}</option>`).join("");
+    names.map(n => `<option value="${escapeHtml(n)}"${n === cur ? " selected" : ""}>${escapeHtml(n)}</option>`).join("") +
+    `<option value="${OTHER_NAME}"${cur === OTHER_NAME ? " selected" : ""}>${escapeHtml(t("other_name"))}</option>`;
 }
+
+function syncNameField(sel, otherInput) { setNameField(sel, otherInput, sel.value); }
 
 function repopulateNameSelects() {
-  peopleContainer.querySelectorAll(".p-name").forEach(sel => populateNameSelect(sel, sel.value));
-}
-
-function renderComboList(input) {
-  const panel = input.parentElement.querySelector(".combo-list");
-  if (!panel) return;
-  const q = input.value.trim().toLowerCase();
-  const matches = staffNames.filter(n => n.toLowerCase().indexOf(q) !== -1);
-  if (!matches.length) { panel.innerHTML = ""; panel.classList.add("hidden"); return; }
-  panel.innerHTML = matches.map(n => `<div class="opt" role="option">${escapeHtml(n)}</div>`).join("");
-  panel.classList.remove("hidden");
-}
-
-function attachCombo(input) {
-  const panel = input.parentElement.querySelector(".combo-list");
-  if (!panel) return;
-  input.addEventListener("focus", () => renderComboList(input));
-  input.addEventListener("input", () => renderComboList(input));
-  input.addEventListener("blur", () => setTimeout(() => panel.classList.add("hidden"), 150));
-  panel.addEventListener("pointerdown", (e) => {
-    const opt = e.target.closest(".opt");
-    if (!opt) return;
-    e.preventDefault(); // keep focus so the tap doesn't blur before we read it
-    input.value = opt.textContent;
-    panel.classList.add("hidden");
-    updatePreview();
-  });
+  syncNameField(enteredByEl, enteredByOtherEl);
+  peopleContainer.querySelectorAll(".person").forEach(row =>
+    syncNameField(row.querySelector(".p-name"), row.querySelector(".p-name-other")));
 }
 
 function loadStaff() {
@@ -365,6 +376,7 @@ function createPersonRow() {
       '<button type="button" class="remove-person hidden" data-i18n="remove">Remove</button>' +
     '</div>' +
     '<select class="p-name"></select>' +
+    '<input type="text" class="p-name-other name-other hidden" autocomplete="off" maxlength="40" data-i18n-ph="ph_name" placeholder="Name">' +
     '<label data-i18n="time_slot">Time slot</label>' +
     '<select class="p-slot"></select>' +
     '<div class="toggle-row">' +
@@ -381,7 +393,7 @@ function createPersonRow() {
 
   const nameSel = row.querySelector(".p-name");
   populateNameSelect(nameSel);
-  nameSel.addEventListener("change", updatePreview);
+  wireNameField(nameSel, row.querySelector(".p-name-other"));
   const slotSel = row.querySelector(".p-slot");
   populateSlotSelect(slotSel);
   slotSel.addEventListener("change", updatePreview);
@@ -436,7 +448,7 @@ function readServers() {
     const trainee = row.querySelector(".p-trainee").checked;
     const sel = row.querySelector(".pct-buttons button.selected");
     return {
-      name: row.querySelector(".p-name").value.trim(),
+      name: rowName(row),
       slot: row.querySelector(".p-slot").value,
       trainee: trainee,
       pct: trainee ? (sel ? parseInt(sel.dataset.pct, 10) : 50) : null,
@@ -483,19 +495,28 @@ function renderSwitchUser() {
 function applyRememberedName() {
   const me = getMe();
   if (me) {
-    enteredByEl.value = me;
-    const firstName = peopleContainer.querySelector(".person .p-name");
-    if (firstName && !firstName.value) populateNameSelect(firstName, me);
+    setNameField(enteredByEl, enteredByOtherEl, me);
+    const firstRow = peopleContainer.querySelector(".person");
+    if (firstRow && !rowName(firstRow)) {
+      setNameField(firstRow.querySelector(".p-name"), firstRow.querySelector(".p-name-other"), me);
+    }
   }
   renderSwitchUser();
+}
+
+function clearNameIf(sel, otherInput, name) {
+  if (nameValueOf(sel, otherInput) === name) {
+    otherInput.value = "";
+    setNameField(sel, otherInput, "");
+  }
 }
 
 switchUserBtn.addEventListener("click", () => {
   const oldMe = getMe();
   setMe("");
-  if (enteredByEl.value.trim() === oldMe) enteredByEl.value = "";
-  const firstName = peopleContainer.querySelector(".person .p-name");
-  if (firstName && firstName.value.trim() === oldMe) firstName.value = "";
+  clearNameIf(enteredByEl, enteredByOtherEl, oldMe);
+  const firstRow = peopleContainer.querySelector(".person");
+  if (firstRow) clearNameIf(firstRow.querySelector(".p-name"), firstRow.querySelector(".p-name-other"), oldMe);
   renderSwitchUser();
   updatePreview();
   enteredByEl.focus();
@@ -528,7 +549,8 @@ langToggle.addEventListener("click", (e) => {
 
 totalTipsEl.addEventListener("input", updatePreview);
 addPersonBtn.addEventListener("click", addPerson);
-attachCombo(enteredByEl);
+populateNameSelect(enteredByEl);
+wireNameField(enteredByEl, enteredByOtherEl);
 applyStaticI18n();
 updateLangButtons();
 renderShiftToggle();
@@ -576,7 +598,7 @@ function validateClient() {
   clearAllErrors();
   let ok = true;
 
-  if (!enteredByEl.value.trim()) {
+  if (!nameValueOf(enteredByEl, enteredByOtherEl)) {
     setFieldError("err-entered-by", t("required"));
     ok = false;
   }
@@ -587,7 +609,7 @@ function validateClient() {
   }
   Array.from(peopleContainer.querySelectorAll(".person")).forEach(row => {
     const err = row.querySelector(".field-error");
-    const name = row.querySelector(".p-name").value.trim();
+    const name = rowName(row);
     const slot = row.querySelector(".p-slot").value;
     let msg = "";
     if (!name) msg = t("name_required");
@@ -599,7 +621,7 @@ function validateClient() {
   if (dupName) {
     const dk = dupName.toLowerCase();
     Array.from(peopleContainer.querySelectorAll(".person")).forEach(row => {
-      if (row.querySelector(".p-name").value.trim().toLowerCase() === dk) {
+      if (rowName(row).toLowerCase() === dk) {
         row.querySelector(".field-error").textContent = t("dup_server");
       }
     });
@@ -611,7 +633,7 @@ function validateClient() {
 function buildPayload() {
   return {
     submissionId,
-    enteredBy: enteredByEl.value.trim(),
+    enteredBy: nameValueOf(enteredByEl, enteredByOtherEl),
     shiftType: currentShift,
     totalTips: parseFloat(totalTipsEl.value),
     servers: readServers(),
@@ -626,20 +648,17 @@ async function submitShift() {
   submitBtn.disabled = true;
   submitBtn.textContent = t("submitting");
 
+  const payload = buildPayload();
   let response;
   try {
-    const res = await fetch(ENDPOINT_URL, {
-      method: "POST",
-      mode: "cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(buildPayload()),
-    });
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    response = await res.json();
+    response = await postJSON(payload);
   } catch (e) {
+    // No connection: keep the entry on this phone and send it automatically later.
+    enqueue(payload);
+    setMe(payload.enteredBy);
     submitBtn.disabled = false;
     submitBtn.textContent = t("submit");
-    showBanner("error", escapeHtml(t("err_save_conn")));
+    renderConfirmation({ offline: true });
     return;
   }
 
@@ -647,7 +666,7 @@ async function submitShift() {
   submitBtn.textContent = t("submit");
 
   if (response.ok) {
-    setMe(enteredByEl.value.trim());
+    setMe(payload.enteredBy);
     renderConfirmation(response);
   } else if (response.retryable) {
     showBanner("error", escapeHtml(t("err_save_retry")));
@@ -656,11 +675,19 @@ async function submitShift() {
   }
 }
 
+function todayDateStr() {
+  return new Date().toLocaleDateString(locale(), { month: "numeric", day: "numeric" });
+}
+
 function renderConfirmation(response) {
   const splits = response.splits;
   const reveal = (typeof response.showSplit === "boolean") ? response.showSplit : showSplit;
-  const rows = [`<strong>${escapeHtml(response.dedup ? t("prev_recorded") : t("shift_recorded"))}</strong>`];
-  if (reveal && splits) {
+  const heading = response.offline
+    ? `<div>${escapeHtml(t("offline_saved"))}</div>`
+    : `<strong>${escapeHtml(response.dedup ? t("prev_recorded") : t("shift_recorded"))}</strong>`;
+  const summary = `${escapeHtml(localizeShiftName(currentShift))} · ${escapeHtml(todayDateStr())} · ${fmt(parseFloat(totalTipsEl.value))}`;
+  const rows = [heading, `<div class="conf-summary">${summary}</div>`];
+  if (!response.offline && reveal && splits) {
     rows.push(`<div class="preview-row"><span>${escapeHtml(t("kitchen"))}</span><span>${fmt(splits.kitchen)}</span></div>`);
     (splits.chefs || []).forEach(c => rows.push(`<div class="preview-row"><span>${escapeHtml(c.name)} ${escapeHtml(t("chef_suffix"))}</span><span>${fmt(c.amount)}</span></div>`));
     (splits.servers || []).forEach(p => {
@@ -678,7 +705,8 @@ function renderConfirmation(response) {
 function resetForm() {
   hideBanner();
   form.classList.remove("hidden");
-  enteredByEl.value = "";
+  enteredByOtherEl.value = "";
+  setNameField(enteredByEl, enteredByOtherEl, "");
   totalTipsEl.value = "";
   peopleContainer.innerHTML = "";
   addPerson();
@@ -690,6 +718,39 @@ function resetForm() {
   loadTodayShifts(); // the shift just entered is now taken
   if (getMe()) totalTipsEl.focus(); else enteredByEl.focus();
 }
+
+// ---- offline queue ----
+// If a submit can't reach the server, the entry is kept here and resent when
+// the connection returns. The backend dedupes by submissionId, so resending is
+// safe even if the original eventually went through.
+const QUEUE_KEY = "matsuri_pending_v1";
+function getQueue() { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]"); } catch (e) { return []; } }
+function setQueue(q) { try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch (e) {} }
+function enqueue(payload) { const q = getQueue(); q.push(payload); setQueue(q); }
+
+let flushing = false;
+async function flushQueue() {
+  if (flushing) return;
+  const q = getQueue();
+  if (!q.length) return;
+  flushing = true;
+  const remaining = [];
+  for (const p of q) {
+    try {
+      const data = await postJSON(p);
+      // Keep only if the server explicitly asked to retry; drop on success or a
+      // permanent error (already entered / invalid) so the queue can't get stuck.
+      if (!data || (!data.ok && data.retryable)) remaining.push(p);
+    } catch (e) {
+      remaining.push(p); // still offline
+    }
+  }
+  setQueue(remaining);
+  flushing = false;
+  if (remaining.length < q.length) loadTodayShifts(); // a queued shift may now be taken
+}
+window.addEventListener("online", flushQueue);
+flushQueue(); // send anything left from a previous offline session
 
 form.addEventListener("submit", (e) => {
   e.preventDefault();

@@ -19,9 +19,7 @@ let actionBusy = false;
 let period = "today";
 let activeTab = "summary";
 let showSplitConfig = true; // global config mirrored from the backend (Settings tab)
-
-// Date/number formatting locale follows the chosen UI language.
-function locale() { return getLang() === "ko" ? "ko-KR" : "en-US"; }
+// locale() (Intl locale for the chosen language) is shared from i18n.js.
 let calMonth = null; // { y, m } 1-based month
 let calDay = null;   // ISO date when drilled into a single day, else null
 

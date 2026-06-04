@@ -83,7 +83,7 @@
   /* Period selector */
   .periods { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1rem 0 .25rem; }
   .periods button {
-    flex: 1 1 auto; min-width: 4.2rem; padding: .55rem .4rem; font-size: .9rem; cursor: pointer;
+    flex: 1 1 auto; min-width: 4.2rem; padding: .65rem .4rem; font-size: .9rem; cursor: pointer;
     border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink);
   }
   .periods button.active { background: var(--indigo); color: #fff; border-color: var(--indigo); }
@@ -97,9 +97,13 @@
   .range-label { color: var(--muted); font-size: .82rem; margin: .5rem 0 0; }
 
   /* Tabs */
-  .tabs { display: flex; flex-wrap: wrap; gap: .25rem; margin: 1rem 0; background: #e9ecf3; border-radius: 10px; padding: .25rem; }
+  .tabs {
+    display: flex; gap: .25rem; margin: 1rem 0; background: #e9ecf3; border-radius: 10px; padding: .25rem;
+    overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
   .tabs button {
-    flex: 1 1 30%; padding: .55rem .3rem; font-size: .88rem; cursor: pointer; border: 0; border-radius: 8px;
+    flex: 0 0 auto; padding: .6rem .85rem; font-size: .88rem; cursor: pointer; border: 0; border-radius: 8px;
     background: transparent; color: var(--muted); font-weight: 600; white-space: nowrap;
   }
   .tabs button.active { background: #fff; color: var(--indigo); box-shadow: 0 1px 3px rgba(20,34,63,0.12); }
@@ -220,7 +224,7 @@
   .staff-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .45rem .55rem; background: #fafafa; border: 1px solid var(--line); border-radius: 8px; }
   .staff-row.inactive { background: #f3f3f3; color: var(--muted); }
   .staff-name { font-size: .95rem; word-break: break-word; }
-  .staff-btn { background: #fff; color: var(--ink); border: 1px solid var(--line); padding: .35rem .7rem; border-radius: 999px; font-size: .8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .staff-btn { background: #fff; color: var(--ink); border: 1px solid var(--line); padding: .5rem .9rem; border-radius: 999px; font-size: .8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
   .staff-row.inactive .staff-btn { color: var(--indigo); border-color: var(--indigo); }
   .staff-empty { color: var(--muted); font-size: .9rem; padding: .35rem .1rem; }
   .staff-inactive { margin-top: .8rem; }

@@ -22,6 +22,8 @@ var I18N = {
     chef_suffix: "(chef)",
     pick_time: "Pick a time",
     pick_name: "Pick a name",
+    other_name: "Other...",
+    offline_saved: "Saved on this phone. It will be sent automatically when you're back online.",
 
     // entry app
     entry_title: "Shift Tip Entry",
@@ -184,6 +186,8 @@ var I18N = {
     chef_suffix: "(셰프)",
     pick_time: "시간 선택",
     pick_name: "이름 선택",
+    other_name: "직접 입력...",
+    offline_saved: "이 기기에 저장되었습니다. 인터넷이 연결되면 자동으로 전송됩니다.",
 
     // entry app
     entry_title: "팁 입력",
@@ -340,6 +344,9 @@ function getLang() {
 function setLang(lang) {
   try { localStorage.setItem(LANG_KEY, lang === "ko" ? "ko" : "en"); } catch (e) {}
 }
+
+// Intl locale for the chosen UI language (date/number formatting).
+function locale() { return getLang() === "ko" ? "ko-KR" : "en-US"; }
 
 function t(key, vars) {
   var lang = getLang();
