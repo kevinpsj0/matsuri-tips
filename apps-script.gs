@@ -333,7 +333,7 @@ function handleFetchData(payload) {
   const lastRow = sheet.getLastRow();
   const staffSheet = ss.getSheetByName("Staff");
   const staff = staffSheet ? readStaffRows(staffSheet).map(function (s) { return { name: s.name, active: s.active, role: s.role }; }) : [];
-  if (lastRow < 2) return jsonResponse({ ok: true, rows: [], staff: staff });
+  if (lastRow < 2) return jsonResponse({ ok: true, rows: [], staff: staff, config: configObject() });
 
   const tz = ss.getSpreadsheetTimeZone();
   const asDateStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "yyyy-MM-dd") : String(v || "");
@@ -357,7 +357,7 @@ function handleFetchData(payload) {
     totalTips: Number(r[COL.TOTAL_TIPS - 1]) || 0,
     submissionId: String(r[COL.SUBMISSION_ID - 1] || ""),
   }));
-  return jsonResponse({ ok: true, rows: rows, staff: staff });
+  return jsonResponse({ ok: true, rows: rows, staff: staff, config: configObject() });
 }
 
 // Read path for the staff verification page (today.html). Returns just
@@ -367,7 +367,7 @@ function handleFetchToday() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheets()[0];
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return jsonResponse({ ok: true, rows: [] });
+  if (lastRow < 2) return jsonResponse({ ok: true, rows: [], config: configObject() });
 
   const tz = ss.getSpreadsheetTimeZone();
   const today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
@@ -397,7 +397,7 @@ function handleFetchToday() {
       submissionId: String(r[COL.SUBMISSION_ID - 1] || ""),
     });
   }
-  return jsonResponse({ ok: true, rows: rows });
+  return jsonResponse({ ok: true, rows: rows, config: configObject() });
 }
 
 // Validates the shift body (everything except submissionId). Shared by the
@@ -795,6 +795,32 @@ function shiftExistsForDay(sheet, dateStr, shiftLabel, tz) {
   return false;
 }
 
+// ---- global config ----
+// SHOW_SPLIT controls whether the entry app reveals the per-person tip split to
+// servers. Stored in Script Properties; defaults to on when unset.
+function getShowSplit() {
+  const v = PropertiesService.getScriptProperties().getProperty("SHOW_SPLIT");
+  return (v === null || v === undefined || v === "") ? true : (v === "1");
+}
+
+function configObject() {
+  return { showSplit: getShowSplit() };
+}
+
+// Admin write path: persist a global setting. PIN protected, like the other
+// admin actions.
+function handleSetConfig(payload) {
+  const storedPin = PropertiesService.getScriptProperties().getProperty("ADMIN_PIN");
+  if (!storedPin) return jsonResponse({ ok: false, error: "Admin access is not configured yet." });
+  if (typeof payload.pin !== "string" || payload.pin !== storedPin) {
+    Utilities.sleep(1000);
+    return jsonResponse({ ok: false, error: "Wrong PIN." });
+  }
+  if (typeof payload.showSplit !== "boolean") return jsonResponse({ ok: false, error: "Invalid config" });
+  PropertiesService.getScriptProperties().setProperty("SHOW_SPLIT", payload.showSplit ? "1" : "0");
+  return jsonResponse({ ok: true, config: configObject() });
+}
+
 function doPost(e) {
   let payload;
   try {
@@ -805,6 +831,9 @@ function doPost(e) {
 
   if (payload && payload.action === "fetchData") {
     return handleFetchData(payload);
+  }
+  if (payload && payload.action === "setConfig") {
+    return handleSetConfig(payload);
   }
   if (payload && payload.action === "fetchStaff") {
     return handleFetchStaff();
@@ -844,7 +873,7 @@ function doPost(e) {
 
     const existing = findRowsBySubmissionId(sheet, payload.submissionId);
     if (existing.length) {
-      return jsonResponse({ ok: true, dedup: true, splits: splitsFromRows(existing) });
+      return jsonResponse({ ok: true, dedup: true, splits: splitsFromRows(existing), showSplit: getShowSplit() });
     }
 
     const splits = splitShift(payload);
@@ -907,7 +936,7 @@ function doPost(e) {
     const newShade = prevShade.toLowerCase() === SHIFT_SHADES[1] ? SHIFT_SHADES[0] : SHIFT_SHADES[1];
     range.setBackground(newShade);
 
-    return jsonResponse({ ok: true, dedup: false, splits: splits });
+    return jsonResponse({ ok: true, dedup: false, splits: splits, showSplit: getShowSplit() });
   } catch (err) {
     return jsonResponse({ ok: false, retryable: true, error: String(err && err.message || err) });
   } finally {

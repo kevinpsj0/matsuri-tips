@@ -109,54 +109,62 @@
   .combo-list .opt:active, .combo-list .opt.active { background: #eef0f5; }
   .hidden { display: none !important; }
   .switch-user { display: inline-block; background: none; border: 0; color: var(--indigo); font-size: .82rem; padding: .15rem 0; margin-top: .1rem; cursor: pointer; text-decoration: underline; }
+  .lang-toggle { display: flex; gap: 2px; background: rgba(255,255,255,0.16); border-radius: 8px; padding: 2px; flex: none; }
+  .lang-toggle button { border: 0; background: transparent; color: #fff; font-size: .72rem; padding: .3rem .45rem; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+  .lang-toggle button.active { background: #fff; color: var(--brand); font-weight: 700; }
 </style>
 </head>
 <body>
 
 <header class="page-head">
   <img src="icons/icon.svg" alt="" class="brand-logo">
-  <h1>Shift Tip Entry</h1>
-  <a class="view-today" href="today.html">Today &rarr;</a>
+  <h1 data-i18n="entry_title">Shift Tip Entry</h1>
+  <div class="lang-toggle" id="lang-toggle">
+    <button type="button" data-lang="en">EN</button>
+    <button type="button" data-lang="ko">한국어</button>
+  </div>
+  <a class="view-today" href="today.html"><span data-i18n="today_link">Today</span> &rarr;</a>
 </header>
 
 <div id="banner" class="banner hidden"></div>
 
 <form id="shift-form" novalidate>
-  <label for="entered-by">Your name</label>
+  <label for="entered-by" data-i18n="your_name">Your name</label>
   <div class="combo">
     <input type="text" id="entered-by" autocomplete="off" maxlength="60">
     <div class="combo-list hidden"></div>
   </div>
   <div class="field-error" id="err-entered-by"></div>
-  <button type="button" id="switch-user" class="switch-user hidden">Not <span id="me-name"></span>?</button>
+  <button type="button" id="switch-user" class="switch-user hidden"></button>
 
-  <label>Shift</label>
+  <label data-i18n="shift_label">Shift</label>
   <div class="pct-buttons" id="shift-toggle">
-    <button type="button" data-shift="lunch">Lunch</button>
-    <button type="button" data-shift="dinner">Dinner</button>
+    <button type="button" data-shift="lunch" data-i18n="lunch">Lunch</button>
+    <button type="button" data-shift="dinner" data-i18n="dinner">Dinner</button>
   </div>
   <div class="field-error" id="shift-note" style="margin-top:.25rem"></div>
 
-  <label for="total-tips">Total tip amount ($)</label>
+  <label for="total-tips" data-i18n="total_tips_label">Total tip amount ($)</label>
   <input type="number" id="total-tips" inputmode="decimal" step="0.01" min="1" max="100000">
   <div class="field-error" id="err-total-tips"></div>
 
-  <label>Servers on shift</label>
+  <label data-i18n="servers_label">Servers on shift</label>
   <div id="people-container"></div>
-  <button type="button" class="add-btn" id="add-person">+ Add server</button>
+  <button type="button" class="add-btn" id="add-person" data-i18n="add_server">+ Add server</button>
 
   <div id="chef-section" class="hidden">
-    <label>Chefs on shift</label>
+    <label data-i18n="chefs_label">Chefs on shift</label>
     <div id="chef-list"></div>
   </div>
 
   <div class="preview" id="preview" aria-live="polite">
-    <div class="preview-row"><span>Enter tips and times to see the split</span></div>
+    <div class="preview-row"><span data-i18n="preview_empty">Enter tips and times to see the split</span></div>
   </div>
 
-  <button type="submit" class="submit-btn" id="submit-btn">Submit shift</button>
+  <button type="submit" class="submit-btn" id="submit-btn" data-i18n="submit">Submit shift</button>
 </form>
 
+<script src="i18n.js"></script>
 <script src="calc.js"></script>
 <script>
 const ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbyvxUBapgpbZpf-ndoexuH2ZjWIwO5bIzH26F-OeWmEcQY4QqbeFXs2lvRTarhlaFtHtQ/exec";
@@ -182,11 +190,12 @@ function escapeHtml(s) {
 let currentShift = (new Date().getHours() * 60 + new Date().getMinutes()) < (18 * 60 + 30) ? "lunch" : "dinner";
 let chefRoster = []; // [{name}] from the staff roster (role=Chef)
 let todayShifts = { lunch: false, dinner: false }; // which shifts are already entered today
+let showSplit = true; // global config: whether to reveal the per-person split to servers
 
 function populateSlotSelect(sel, selectedId) {
   const slots = SHIFT_SLOTS[currentShift] || [];
-  sel.innerHTML = '<option value="">Pick a time</option>' +
-    slots.map(s => `<option value="${s.id}"${s.id === selectedId ? " selected" : ""}>${escapeHtml(s.label)}</option>`).join("");
+  sel.innerHTML = `<option value="">${escapeHtml(t("pick_time"))}</option>` +
+    slots.map(s => `<option value="${s.id}"${s.id === selectedId ? " selected" : ""}>${escapeHtml(localizeSlotLabel(s.label))}</option>`).join("");
 }
 
 const shiftToggle = document.getElementById("shift-toggle");
@@ -220,9 +229,9 @@ function applyShiftAvailability() {
   }
   const bothTaken = todayShifts.lunch && todayShifts.dinner;
   if (bothTaken) {
-    note.textContent = "Both shifts have been entered today. Use 'View today's shifts' to edit them.";
+    note.textContent = t("both_entered");
   } else if (todayShifts.lunch || todayShifts.dinner) {
-    note.textContent = (todayShifts.lunch ? "Lunch" : "Dinner") + " already entered today.";
+    note.textContent = t("one_entered", { shift: t(todayShifts.lunch ? "lunch" : "dinner") });
   } else {
     note.textContent = "";
   }
@@ -238,6 +247,10 @@ function loadTodayShifts() {
     .then(r => r.json())
     .then(data => {
       if (!data || !data.ok || !Array.isArray(data.rows)) return;
+      if (data.config && typeof data.config.showSplit === "boolean") {
+        showSplit = data.config.showSplit;
+        updatePreview();
+      }
       const s = { lunch: false, dinner: false };
       data.rows.forEach(r => {
         const sh = String(r.shift || "").toLowerCase();
@@ -335,17 +348,17 @@ function createPersonRow() {
   row.innerHTML =
     '<div class="person-head">' +
       '<span class="person-title">Person</span>' +
-      '<button type="button" class="remove-person hidden">Remove</button>' +
+      '<button type="button" class="remove-person hidden" data-i18n="remove">Remove</button>' +
     '</div>' +
     '<div class="combo">' +
-      '<input type="text" class="p-name" autocomplete="off" maxlength="40" placeholder="Name">' +
+      '<input type="text" class="p-name" autocomplete="off" maxlength="40" data-i18n-ph="ph_name" placeholder="Name">' +
       '<div class="combo-list hidden"></div>' +
     '</div>' +
-    '<label>Time slot</label>' +
+    '<label data-i18n="time_slot">Time slot</label>' +
     '<select class="p-slot"></select>' +
     '<div class="toggle-row">' +
       '<label class="switch"><input type="checkbox" class="p-trainee"><span class="slider"></span></label>' +
-      '<span>Trainee</span>' +
+      '<span data-i18n="trainee">Trainee</span>' +
     '</div>' +
     '<div class="pct-buttons hidden">' +
       '<button type="button" data-pct="25">25%</button>' +
@@ -353,6 +366,7 @@ function createPersonRow() {
       '<button type="button" data-pct="75">75%</button>' +
     '</div>' +
     '<div class="field-error"></div>';
+  applyStaticI18n(row);
 
   const nameInput = row.querySelector(".p-name");
   nameInput.addEventListener("input", updatePreview);
@@ -397,7 +411,7 @@ function relabelPeople() {
   const rows = peopleContainer.querySelectorAll(".person");
   const showRemove = rows.length > 1;
   rows.forEach((row, i) => {
-    row.querySelector(".person-title").textContent = "Server " + (i + 1);
+    row.querySelector(".person-title").textContent = t("server_n", { n: i + 1 });
     row.querySelector(".remove-person").classList.toggle("hidden", !showRemove);
   });
 }
@@ -426,27 +440,30 @@ function updatePreview() {
   const ready = isFinite(totalTips) && totalTips >= 1 && servers.length >= 1 &&
     servers.every(s => s.name && getSlot(currentShift, s.slot));
   if (!ready) {
-    previewEl.innerHTML = `<div class="preview-row"><span>Enter tips, servers, and slots to see the split</span></div>`;
+    previewEl.innerHTML = `<div class="preview-row"><span>${escapeHtml(t("preview_hint"))}</span></div>`;
+    return;
+  }
+  if (!showSplit) {
+    previewEl.innerHTML = `<div class="preview-row"><span>${escapeHtml(t("split_hidden_ready"))}</span></div>`;
     return;
   }
   const splits = splitShift({ shiftType: currentShift, totalTips, servers, chefs });
-  const rows = [`<div class="preview-row"><span>Kitchen</span><span>${fmt(splits.kitchen)}</span></div>`];
-  splits.chefs.forEach(c => rows.push(`<div class="preview-row"><span>${escapeHtml(c.name)} (chef)</span><span>${fmt(c.amount)}</span></div>`));
+  const rows = [`<div class="preview-row"><span>${escapeHtml(t("kitchen"))}</span><span>${fmt(splits.kitchen)}</span></div>`];
+  splits.chefs.forEach(c => rows.push(`<div class="preview-row"><span>${escapeHtml(c.name)} ${escapeHtml(t("chef_suffix"))}</span><span>${fmt(c.amount)}</span></div>`));
   splits.servers.forEach(p => {
-    const label = (p.name || "Server") + (p.trainee ? ` (${p.pct}% trainee)` : "");
+    const label = (p.name || t("server_word")) + (p.trainee ? " " + t("trainee_suffix", { pct: p.pct }) : "");
     rows.push(`<div class="preview-row"><span>${escapeHtml(label)} · ${fmtHours(p.hours)}</span><span>${fmt(p.amount)}</span></div>`);
   });
   const total = splits.kitchen + splits.chefs.reduce((s, c) => s + c.amount, 0) + splits.servers.reduce((s, p) => s + p.amount, 0);
-  rows.push(`<div class="preview-row total"><span>Total</span><span>${fmt(total)}</span></div>`);
+  rows.push(`<div class="preview-row total"><span>${escapeHtml(t("total"))}</span><span>${fmt(total)}</span></div>`);
   previewEl.innerHTML = rows.join("");
 }
 
 const switchUserBtn = document.getElementById("switch-user");
-const meNameEl = document.getElementById("me-name");
 
 function renderSwitchUser() {
   const me = getMe();
-  meNameEl.textContent = me;
+  switchUserBtn.textContent = me ? t("not_me", { name: me }) : "";
   switchUserBtn.classList.toggle("hidden", !me);
 }
 
@@ -471,9 +488,35 @@ switchUserBtn.addEventListener("click", () => {
   enteredByEl.focus();
 });
 
+// ---- language ----
+const langToggle = document.getElementById("lang-toggle");
+function updateLangButtons() {
+  const lang = getLang();
+  langToggle.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.lang === lang));
+}
+// The entry form has no single render(), so each dynamic surface is re-translated
+// by hand here. Add any new dynamic text surface to this list.
+function applyLang() {
+  applyStaticI18n();
+  relabelPeople();
+  peopleContainer.querySelectorAll(".p-slot").forEach(sel => populateSlotSelect(sel, getSlot(currentShift, sel.value) ? sel.value : ""));
+  applyShiftAvailability();
+  renderSwitchUser();
+  updatePreview();
+  updateLangButtons();
+}
+langToggle.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-lang]");
+  if (!btn) return;
+  setLang(btn.dataset.lang);
+  applyLang();
+});
+
 totalTipsEl.addEventListener("input", updatePreview);
 addPersonBtn.addEventListener("click", addPerson);
 attachCombo(enteredByEl);
+applyStaticI18n();
+updateLangButtons();
 renderShiftToggle();
 addPerson();
 applyRememberedName();
@@ -520,12 +563,12 @@ function validateClient() {
   let ok = true;
 
   if (!enteredByEl.value.trim()) {
-    setFieldError("err-entered-by", "Required");
+    setFieldError("err-entered-by", t("required"));
     ok = false;
   }
   const tips = parseFloat(totalTipsEl.value);
   if (!isFinite(tips) || tips < 1 || tips > 100000) {
-    setFieldError("err-total-tips", "Enter an amount between $1 and $100,000");
+    setFieldError("err-total-tips", t("err_amount_range"));
     ok = false;
   }
   Array.from(peopleContainer.querySelectorAll(".person")).forEach(row => {
@@ -533,8 +576,8 @@ function validateClient() {
     const name = row.querySelector(".p-name").value.trim();
     const slot = row.querySelector(".p-slot").value;
     let msg = "";
-    if (!name) msg = "Name required";
-    else if (!getSlot(currentShift, slot)) msg = "Pick a time slot";
+    if (!name) msg = t("name_required");
+    else if (!getSlot(currentShift, slot)) msg = t("pick_time_slot");
     if (err) err.textContent = msg;
     if (msg) ok = false;
   });
@@ -543,7 +586,7 @@ function validateClient() {
     const dk = dupName.toLowerCase();
     Array.from(peopleContainer.querySelectorAll(".person")).forEach(row => {
       if (row.querySelector(".p-name").value.trim().toLowerCase() === dk) {
-        row.querySelector(".field-error").textContent = "Duplicate server name";
+        row.querySelector(".field-error").textContent = t("dup_server");
       }
     });
     ok = false;
@@ -567,7 +610,7 @@ async function submitShift() {
   if (!validateClient()) return;
 
   submitBtn.disabled = true;
-  submitBtn.textContent = "Submitting...";
+  submitBtn.textContent = t("submitting");
 
   let response;
   try {
@@ -581,34 +624,37 @@ async function submitShift() {
     response = await res.json();
   } catch (e) {
     submitBtn.disabled = false;
-    submitBtn.textContent = "Submit shift";
-    showBanner("error", "Could not save. Check your connection and tap Submit again.");
+    submitBtn.textContent = t("submit");
+    showBanner("error", escapeHtml(t("err_save_conn")));
     return;
   }
 
   submitBtn.disabled = false;
-  submitBtn.textContent = "Submit shift";
+  submitBtn.textContent = t("submit");
 
   if (response.ok) {
     setMe(enteredByEl.value.trim());
     renderConfirmation(response);
   } else if (response.retryable) {
-    showBanner("error", "Could not save. Try again in a few seconds.");
+    showBanner("error", escapeHtml(t("err_save_retry")));
   } else {
-    showBanner("error", "Something was wrong with your entry: " + escapeHtml(response.error || "Unknown error"));
+    showBanner("error", escapeHtml(t("err_entry_prefix")) + escapeHtml(response.error || t("unknown_error")));
   }
 }
 
 function renderConfirmation(response) {
   const splits = response.splits;
-  const rows = [`<strong>${response.dedup ? "Previously recorded shift" : "Shift recorded"}</strong>`];
-  rows.push(`<div class="preview-row"><span>Kitchen</span><span>${fmt(splits.kitchen)}</span></div>`);
-  (splits.chefs || []).forEach(c => rows.push(`<div class="preview-row"><span>${escapeHtml(c.name)} (chef)</span><span>${fmt(c.amount)}</span></div>`));
-  (splits.servers || []).forEach(p => {
-    const label = (p.name || "Server") + (p.trainee ? ` (${p.pct}% trainee)` : "");
-    rows.push(`<div class="preview-row"><span>${escapeHtml(label)} · ${fmtHours(p.hours)}</span><span>${fmt(p.amount)}</span></div>`);
-  });
-  rows.push(`<button type="button" id="reset-btn" class="submit-btn" style="margin-top:1rem">Record another shift</button>`);
+  const reveal = (typeof response.showSplit === "boolean") ? response.showSplit : showSplit;
+  const rows = [`<strong>${escapeHtml(response.dedup ? t("prev_recorded") : t("shift_recorded"))}</strong>`];
+  if (reveal && splits) {
+    rows.push(`<div class="preview-row"><span>${escapeHtml(t("kitchen"))}</span><span>${fmt(splits.kitchen)}</span></div>`);
+    (splits.chefs || []).forEach(c => rows.push(`<div class="preview-row"><span>${escapeHtml(c.name)} ${escapeHtml(t("chef_suffix"))}</span><span>${fmt(c.amount)}</span></div>`));
+    (splits.servers || []).forEach(p => {
+      const label = (p.name || t("server_word")) + (p.trainee ? " " + t("trainee_suffix", { pct: p.pct }) : "");
+      rows.push(`<div class="preview-row"><span>${escapeHtml(label)} · ${fmtHours(p.hours)}</span><span>${fmt(p.amount)}</span></div>`);
+    });
+  }
+  rows.push(`<button type="button" id="reset-btn" class="submit-btn" style="margin-top:1rem">${escapeHtml(t("record_another"))}</button>`);
 
   form.classList.add("hidden");
   showBanner("success", rows.join(""));

@@ -34,6 +34,9 @@
   header.head h1 { font-size: 1.15rem; margin: 0; flex: 1; color: #fff; }
   .brand-logo { width: 30px; height: 30px; border-radius: 7px; flex: none; }
   .back { color: #fff; background: rgba(255,255,255,0.14); border-radius: 8px; padding: .4rem .6rem; text-decoration: none; font-size: .8rem; white-space: nowrap; }
+  .lang-toggle { display: flex; gap: 2px; background: rgba(255,255,255,0.16); border-radius: 8px; padding: 2px; flex: none; }
+  .lang-toggle button { border: 0; background: transparent; color: #fff; font-size: .72rem; padding: .3rem .45rem; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+  .lang-toggle button.active { background: #fff; color: var(--brand); font-weight: 700; }
   .refresh {
     background: #fff; border: 1px solid var(--line); border-radius: 6px;
     padding: .4rem .8rem; font-size: .85rem; cursor: pointer; margin-bottom: .8rem;
@@ -95,59 +98,64 @@
 
 <header class="head">
   <img src="icons/icon.svg" alt="" class="brand-logo">
-  <h1>Today's shifts</h1>
-  <a class="back" href="./">&larr; Entry</a>
+  <h1 data-i18n="today_title">Today's shifts</h1>
+  <div class="lang-toggle" id="lang-toggle">
+    <button type="button" data-lang="en">EN</button>
+    <button type="button" data-lang="ko">한국어</button>
+  </div>
+  <a class="back" href="./">&larr; <span data-i18n="entry_back">Entry</span></a>
 </header>
 
-<button type="button" class="refresh" id="refresh-btn">Refresh</button>
+<button type="button" class="refresh" id="refresh-btn" data-i18n="refresh">Refresh</button>
 
-<div id="content"><div class="loading">Loading...</div></div>
+<div id="content"><div class="loading" data-i18n="loading">Loading...</div></div>
 
 <div class="modal hidden" id="edit-modal">
   <div class="modal-card">
-    <h2>Request edit</h2>
+    <h2 data-i18n="request_edit">Request edit</h2>
     <div class="sub" id="edit-sub"></div>
 
-    <label for="req-name">Your name</label>
+    <label for="req-name" data-i18n="your_name">Your name</label>
     <input type="text" id="req-name" autocomplete="off" maxlength="60">
 
-    <label for="req-note">Note (optional)</label>
-    <textarea id="req-note" maxlength="500" placeholder="Anything the owner should know"></textarea>
+    <label for="req-note" data-i18n="note_optional">Note (optional)</label>
+    <textarea id="req-note" maxlength="500" data-i18n-ph="note_ph" placeholder="Anything the owner should know"></textarea>
 
     <hr class="sep">
-    <p class="hint">Edit any field below, then send. The owner will review and approve.</p>
+    <p class="hint" data-i18n="edit_hint">Edit any field below, then send. The owner will review and approve.</p>
 
-    <label for="edit-by">Entered by</label>
+    <label for="edit-by" data-i18n="entered_by_label">Entered by</label>
     <input type="text" id="edit-by" maxlength="60" autocomplete="off">
 
-    <label for="edit-total">Total tip amount ($)</label>
+    <label for="edit-total" data-i18n="total_tips_label">Total tip amount ($)</label>
     <input type="number" id="edit-total" inputmode="decimal" step="0.01" min="1" max="100000">
 
-    <label>Shift</label>
+    <label data-i18n="shift_label">Shift</label>
     <div class="ep-pct" id="edit-shift">
-      <button type="button" data-shift="lunch">Lunch</button>
-      <button type="button" data-shift="dinner">Dinner</button>
+      <button type="button" data-shift="lunch" data-i18n="lunch">Lunch</button>
+      <button type="button" data-shift="dinner" data-i18n="dinner">Dinner</button>
     </div>
 
-    <label>Servers</label>
+    <label data-i18n="servers_word">Servers</label>
     <div id="edit-people"></div>
-    <button type="button" class="add-btn" id="edit-add">+ Add server</button>
+    <button type="button" class="add-btn" id="edit-add" data-i18n="add_server">+ Add server</button>
 
     <div id="edit-chef-section" class="hidden">
-      <label>Chefs on shift</label>
+      <label data-i18n="chefs_label">Chefs on shift</label>
       <div id="edit-chef-list"></div>
     </div>
 
     <div class="err" id="req-err"></div>
     <div class="modal-actions">
-      <button type="button" class="btn-secondary" id="req-cancel">Cancel</button>
-      <button type="button" class="btn-primary" id="req-send">Send request</button>
+      <button type="button" class="btn-secondary" id="req-cancel" data-i18n="cancel">Cancel</button>
+      <button type="button" class="btn-primary" id="req-send" data-i18n="send_request">Send request</button>
     </div>
   </div>
 </div>
 
 <div class="toast hidden" id="toast"></div>
 
+<script src="i18n.js"></script>
 <script src="calc.js"></script>
 <script>
 const ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbyvxUBapgpbZpf-ndoexuH2ZjWIwO5bIzH26F-OeWmEcQY4QqbeFXs2lvRTarhlaFtHtQ/exec";
@@ -189,7 +197,7 @@ async function loadChefRoster() {
 loadChefRoster();
 
 async function load() {
-  content.innerHTML = `<div class="loading">Loading...</div>`;
+  content.innerHTML = `<div class="loading">${escapeHtml(t("loading"))}</div>`;
   try {
     const res = await fetch(ENDPOINT_URL, {
       method: "POST", mode: "cors",
@@ -201,14 +209,14 @@ async function load() {
     if (!data || !data.ok) throw new Error((data && data.error) || "load failed");
     render(data.rows || []);
   } catch (e) {
-    content.innerHTML = `<div class="empty">Could not load. Check your connection and tap Refresh.</div>`;
+    content.innerHTML = `<div class="empty">${escapeHtml(t("could_not_load"))}</div>`;
   }
 }
 
 const roleOrder = { Server: 0, Trainee: 1, Chef: 2, Kitchen: 3 };
 
 function render(rows) {
-  if (!rows.length) { content.innerHTML = `<div class="empty">No shifts entered today yet.</div>`; shiftsMap = {}; return; }
+  if (!rows.length) { content.innerHTML = `<div class="empty">${escapeHtml(t("no_shifts_today"))}</div>`; shiftsMap = {}; return; }
   shiftsMap = {};
   for (const r of rows) {
     const id = r.submissionId || (r.date + r.time);
@@ -219,19 +227,19 @@ function render(rows) {
   content.innerHTML = list.map((sh) => {
     const recips = sh.recipients.slice().sort((a, b) => (roleOrder[a.role] || 0) - (roleOrder[b.role] || 0));
     const lines = recips.map((r) => {
-      let label = r.role === "Kitchen" ? "Kitchen" : escapeHtml(r.recipient || "?");
-      if (r.role === "Chef") label += " (chef)";
-      if (r.role === "Trainee" && r.traineePct != null) label += ` (${escapeHtml(String(r.traineePct))}% trainee)`;
-      const tm = r.slot ? ` · ${escapeHtml(r.slot)}` : "";
+      let label = r.role === "Kitchen" ? escapeHtml(t("kitchen")) : escapeHtml(r.recipient || "?");
+      if (r.role === "Chef") label += " " + escapeHtml(t("chef_suffix"));
+      if (r.role === "Trainee" && r.traineePct != null) label += " " + escapeHtml(t("trainee_suffix", { pct: r.traineePct }));
+      const tm = r.slot ? ` · ${escapeHtml(localizeSlotLabel(r.slot))}` : "";
       return `<div class="ln"><span>${label}${tm}</span><span class="val">${fmt(r.amount)}</span></div>`;
     }).join("");
-    const shiftTag = sh.recipients[0] && sh.recipients[0].shift ? escapeHtml(sh.recipients[0].shift) + " · " : "";
+    const shiftTag = sh.recipients[0] && sh.recipients[0].shift ? escapeHtml(localizeShiftName(sh.recipients[0].shift)) + " · " : "";
     return `<div class="shift" data-sid="${escapeHtml(sh.id)}">
       <div class="shift-head">
         <span class="when">${shiftTag}${escapeHtml(sh.time)} · <span class="tot">${fmt(sh.totalTips)}</span></span>
-        <button type="button" class="req-btn">Request edit</button>
+        <button type="button" class="req-btn">${escapeHtml(t("request_edit"))}</button>
       </div>
-      <div class="by">Entered by ${escapeHtml(sh.enteredBy || "?")}</div>
+      <div class="by">${escapeHtml(t("entered_by_prefix"))}${escapeHtml(sh.enteredBy || "?")}</div>
       <div class="lines">${lines}</div>
     </div>`;
   }).join("");
@@ -240,7 +248,7 @@ function render(rows) {
 // ---- edit modal ----
 
 function slotOptions(shift, selectedId) {
-  return '<option value="">Pick a time</option>' + (SHIFT_SLOTS[shift] || []).map(s => `<option value="${s.id}"${s.id === selectedId ? " selected" : ""}>${escapeHtml(s.label)}</option>`).join("");
+  return `<option value="">${escapeHtml(t("pick_time"))}</option>` + (SHIFT_SLOTS[shift] || []).map(s => `<option value="${s.id}"${s.id === selectedId ? " selected" : ""}>${escapeHtml(localizeSlotLabel(s.label))}</option>`).join("");
 }
 
 function personRowHtml(p) {
@@ -249,12 +257,12 @@ function personRowHtml(p) {
   const btn = (v) => `<button type="button" data-pct="${v}"${pct === v ? ' class="selected"' : ""}>${v}%</button>`;
   return `<div class="edit-person">
     <div class="ep-row">
-      <input type="text" class="ep-name" maxlength="40" placeholder="Name" value="${escapeHtml(p.name || "")}">
-      <button type="button" class="ep-remove" aria-label="Remove">&times;</button>
+      <input type="text" class="ep-name" maxlength="40" placeholder="${escapeHtml(t("ph_name"))}" value="${escapeHtml(p.name || "")}">
+      <button type="button" class="ep-remove" aria-label="${escapeHtml(t("remove"))}">&times;</button>
     </div>
     <div class="ep-row"><select class="ep-slot">${slotOptions(editShift, p.slot || "")}</select></div>
     <div class="ep-trainee-row">
-      <label><input type="checkbox" class="ep-trainee"${trainee ? " checked" : ""}> Trainee</label>
+      <label><input type="checkbox" class="ep-trainee"${trainee ? " checked" : ""}> ${escapeHtml(t("trainee"))}</label>
       <div class="ep-pct${trainee ? "" : " hidden"}">${btn(25)}${btn(50)}${btn(75)}</div>
     </div>
   </div>`;
@@ -349,11 +357,11 @@ content.addEventListener("click", (e) => {
   const sid = card.dataset.sid;
   const sh = shiftsMap[sid];
   if (!sh) {
-    alert("That shift is no longer on today's list. Tap Refresh to reload.");
+    alert(t("shift_gone"));
     return;
   }
   currentSid = sid;
-  editSub.textContent = `Shift ${sh.date} ${sh.time} · ${fmt(sh.totalTips)}. The owner will review.`;
+  editSub.textContent = t("edit_sub_tpl", { date: sh.date, time: sh.time, amount: fmt(sh.totalTips) });
   reqName.value = getMe();
   reqNote.value = "";
   reqErr.textContent = "";
@@ -382,28 +390,28 @@ function buildProposed() {
   const totalTips = parseFloat(editTotal.value);
   const servers = readEditServers();
   const chefs = readEditChefs();
-  if (!enteredBy) return { error: "Please enter who recorded the shift." };
-  if (!isFinite(totalTips) || totalTips < 1 || totalTips > 100000) return { error: "Total must be between $1 and $100,000." };
-  if (!servers.length) return { error: "At least one server is required." };
+  if (!enteredBy) return { error: t("err_who_recorded") };
+  if (!isFinite(totalTips) || totalTips < 1 || totalTips > 100000) return { error: t("err_total_range2") };
+  if (!servers.length) return { error: t("err_one_server") };
   for (let i = 0; i < servers.length; i++) {
-    if (!servers[i].name) return { error: `Server ${i + 1}: name is required.` };
-    if (!getSlot(editShift, servers[i].slot)) return { error: `Server ${i + 1}: pick a time slot.` };
+    if (!servers[i].name) return { error: t("err_server_name_n", { n: i + 1 }) };
+    if (!getSlot(editShift, servers[i].slot)) return { error: t("err_server_slot_n", { n: i + 1 }) };
   }
   const dupServer = firstDuplicateName(servers.map(s => s.name));
-  if (dupServer) return { error: "Two servers have the same name: " + dupServer + "." };
+  if (dupServer) return { error: t("err_two_servers_same", { name: dupServer }) };
   const dupChef = firstDuplicateName(chefs.map(c => c.name));
-  if (dupChef) return { error: "Duplicate chef selected: " + dupChef + "." };
+  if (dupChef) return { error: t("err_dup_chef", { name: dupChef }) };
   return { proposed: { shiftType: editShift, enteredBy, totalTips, servers, chefs } };
 }
 
 reqSend.addEventListener("click", async () => {
   const name = reqName.value.trim();
   const note = reqNote.value.trim();
-  if (!name) { reqErr.textContent = "Please enter your name."; reqName.focus(); return; }
+  if (!name) { reqErr.textContent = t("err_enter_name"); reqName.focus(); return; }
   const built = buildProposed();
   if (built.error) { reqErr.textContent = built.error; return; }
   reqErr.textContent = "";
-  reqSend.disabled = true; reqSend.textContent = "Sending...";
+  reqSend.disabled = true; reqSend.textContent = t("sending");
   try {
     const res = await fetch(ENDPOINT_URL, {
       method: "POST", mode: "cors",
@@ -415,11 +423,11 @@ reqSend.addEventListener("click", async () => {
     if (!data.ok) throw new Error(data.error || "send failed");
     setMe(name);
     modal.classList.add("hidden");
-    showToast("Edit request sent to the owner.");
+    showToast(t("edit_sent_toast"));
   } catch (err) {
-    reqErr.textContent = "Could not send: " + (err && err.message || "try again.");
+    reqErr.textContent = t("could_not_send_prefix") + (err && err.message || t("try_again"));
   } finally {
-    reqSend.disabled = false; reqSend.textContent = "Send request";
+    reqSend.disabled = false; reqSend.textContent = t("send_request");
   }
 });
 
@@ -430,6 +438,23 @@ function showToast(msg) {
 }
 
 refreshBtn.addEventListener("click", load);
+
+const langToggle = document.getElementById("lang-toggle");
+function updateLangButtons() {
+  const lang = getLang();
+  langToggle.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.lang === lang));
+}
+langToggle.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-lang]");
+  if (!btn) return;
+  setLang(btn.dataset.lang);
+  applyStaticI18n();
+  updateLangButtons();
+  load(); // re-render today's list in the new language
+});
+
+applyStaticI18n();
+updateLangButtons();
 load();
 
 if ("serviceWorker" in navigator) {

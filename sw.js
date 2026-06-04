@@ -1,8 +1,9 @@
-const CACHE = "matsuri-tips-v17";
+const CACHE = "matsuri-tips-v18";
 const ASSETS = [
   "./",
   "./index.html",
   "./calc.js",
+  "./i18n.js",
   "./today.html",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
@@ -38,7 +39,7 @@ self.addEventListener("fetch", (e) => {
   if (url.origin !== location.origin) return;
 
   // Keep the pages and app logic fresh when online; fall back to cache offline.
-  const freshFirst = req.mode === "navigate" || url.pathname.endsWith("/calc.js") || url.pathname.endsWith("/admin.js");
+  const freshFirst = req.mode === "navigate" || url.pathname.endsWith("/calc.js") || url.pathname.endsWith("/admin.js") || url.pathname.endsWith("/i18n.js");
   if (freshFirst) {
     e.respondWith(
       fetch(req, { cache: "reload" }) // bypass the HTTP cache so updates aren't masked by it

@@ -212,6 +212,24 @@
 
   .empty-state { text-align: center; color: var(--muted); padding: 2rem 1rem; }
   .loading { text-align: center; color: var(--muted); padding: 2rem; }
+
+  /* Settings */
+  .set-row { padding: .4rem 0 1rem; border-bottom: 1px solid var(--line); margin-bottom: 1rem; }
+  .set-row:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+  .set-label { font-weight: 600; font-size: .95rem; }
+  .set-hint { color: var(--muted); font-size: .82rem; margin: .15rem 0 .6rem; }
+  .set-langs { display: inline-flex; gap: 2px; background: #e9ecf3; border-radius: 10px; padding: .25rem; }
+  .set-langs button { border: 0; background: transparent; color: var(--muted); font-weight: 600; font-size: .9rem; padding: .45rem .9rem; border-radius: 8px; cursor: pointer; }
+  .set-langs button.active { background: #fff; color: var(--indigo); box-shadow: 0 1px 3px rgba(20,34,63,0.12); }
+  .set-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .set-switch { position: relative; width: 3rem; height: 1.75rem; flex: none; }
+  .set-switch input { opacity: 0; width: 0; height: 0; }
+  .set-slider { position: absolute; inset: 0; background: #ccc; border-radius: 1rem; transition: .2s; cursor: pointer; }
+  .set-slider::before { content: ""; position: absolute; height: 1.5rem; width: 1.5rem; left: .125rem; bottom: .125rem; background: #fff; border-radius: 50%; transition: .2s; }
+  .set-switch input:checked + .set-slider { background: var(--indigo); }
+  .set-switch input:checked + .set-slider::before { transform: translateX(1.25rem); }
+  .set-status { font-size: .82rem; color: var(--muted); margin-top: .5rem; min-height: 1em; }
+
   .hidden { display: none !important; }
 </style>
 </head>
@@ -220,13 +238,13 @@
 <div id="gate">
   <div class="gate-card">
     <img src="icons/icon-admin.svg" alt="">
-    <h1>Matsuri Tips Admin</h1>
-    <p id="gate-checking" class="gate-checking hidden">Checking saved PIN...</p>
+    <h1 data-i18n="gate_title">Matsuri Tips Admin</h1>
+    <p id="gate-checking" class="gate-checking hidden" data-i18n="gate_checking">Checking saved PIN...</p>
     <div id="gate-form" class="hidden">
-      <p>Enter your access PIN.</p>
+      <p data-i18n="gate_prompt">Enter your access PIN.</p>
       <input id="pin-input" type="password" inputmode="numeric" autocomplete="off"
-             maxlength="10" placeholder="------" aria-label="Access PIN">
-      <button id="pin-submit" type="button">Unlock</button>
+             maxlength="10" placeholder="------" data-i18n-aria="pin_aria" aria-label="Access PIN">
+      <button id="pin-submit" type="button" data-i18n="unlock">Unlock</button>
       <div class="gate-err" id="gate-err"></div>
     </div>
   </div>
@@ -236,37 +254,38 @@
   <header class="bar">
     <div class="wrap">
       <img src="icons/icon-admin.svg" alt="">
-      <h1>Tips Admin</h1>
-      <a class="iconbtn" id="sheet-btn" href="https://docs.google.com/spreadsheets/d/1NbKaxie29WhzLnxkhVFKAA50EowPRLTsbahsYw3PPZI/edit" target="_blank" rel="noopener">Sheet</a>
-      <button class="iconbtn" id="refresh-btn" type="button">Refresh</button>
-      <button class="iconbtn" id="signout-btn" type="button">Sign out</button>
+      <h1 data-i18n="admin_title">Tips Admin</h1>
+      <a class="iconbtn" id="sheet-btn" href="https://docs.google.com/spreadsheets/d/1NbKaxie29WhzLnxkhVFKAA50EowPRLTsbahsYw3PPZI/edit" target="_blank" rel="noopener" data-i18n="sheet">Sheet</a>
+      <button class="iconbtn" id="refresh-btn" type="button" data-i18n="refresh">Refresh</button>
+      <button class="iconbtn" id="signout-btn" type="button" data-i18n="sign_out">Sign out</button>
     </div>
   </header>
 
   <div class="wrap">
     <div class="periods" id="periods">
-      <button data-period="today" class="active">Today</button>
-      <button data-period="yesterday">Yesterday</button>
-      <button data-period="week">This Week</button>
-      <button data-period="month">This Month</button>
-      <button data-period="custom">Custom</button>
+      <button data-period="today" class="active" data-i18n="period_today">Today</button>
+      <button data-period="yesterday" data-i18n="period_yesterday">Yesterday</button>
+      <button data-period="week" data-i18n="period_week">This Week</button>
+      <button data-period="month" data-i18n="period_month">This Month</button>
+      <button data-period="custom" data-i18n="period_custom">Custom</button>
     </div>
     <div class="custom-range" id="custom-range">
       <div class="day-presets" id="day-presets"></div>
       <div class="date-row">
-        <input type="date" id="custom-start" aria-label="Start date">
-        <span>to</span>
-        <input type="date" id="custom-end" aria-label="End date">
+        <input type="date" id="custom-start" data-i18n-aria="start_date" aria-label="Start date">
+        <span data-i18n="range_to">to</span>
+        <input type="date" id="custom-end" data-i18n-aria="end_date" aria-label="End date">
       </div>
     </div>
     <p class="range-label" id="range-label"></p>
 
     <div class="tabs" id="tabs">
-      <button data-tab="summary" class="active">Summary</button>
-      <button data-tab="calendar">Calendar</button>
-      <button data-tab="shifts">Shifts</button>
-      <button data-tab="people">People</button>
-      <button data-tab="requests">Requests<span id="req-badge" class="badge"></span></button>
+      <button data-tab="summary" class="active" data-i18n="tab_summary">Summary</button>
+      <button data-tab="calendar" data-i18n="tab_calendar">Calendar</button>
+      <button data-tab="shifts" data-i18n="tab_shifts">Shifts</button>
+      <button data-tab="people" data-i18n="tab_people">People</button>
+      <button data-tab="requests"><span data-i18n="tab_requests">Requests</span><span id="req-badge" class="badge"></span></button>
+      <button data-tab="settings" data-i18n="tab_settings">Settings</button>
     </div>
 
     <div id="view"></div>
@@ -282,6 +301,7 @@
   </div>
 </div>
 
+<script src="i18n.js"></script>
 <script src="calc.js"></script>
 <script src="admin.js"></script>
 <script>

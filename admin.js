@@ -18,6 +18,10 @@ let requestsLoadError = "";
 let actionBusy = false;
 let period = "today";
 let activeTab = "summary";
+let showSplitConfig = true; // global config mirrored from the backend (Settings tab)
+
+// Date/number formatting locale follows the chosen UI language.
+function locale() { return getLang() === "ko" ? "ko-KR" : "en-US"; }
 let calMonth = null; // { y, m } 1-based month
 let calDay = null;   // ISO date when drilled into a single day, else null
 
@@ -92,7 +96,7 @@ function showChecking() { gateForm.classList.add("hidden"); gateChecking.classLi
 function showGateForm() { gateChecking.classList.add("hidden"); gateForm.classList.remove("hidden"); }
 
 function showGateErr(msg) { gateErr.textContent = msg || ""; }
-function setGateBusy(b) { pinSubmit.disabled = b; pinSubmit.textContent = b ? "Checking..." : "Unlock"; }
+function setGateBusy(b) { pinSubmit.disabled = b; pinSubmit.textContent = b ? t("checking") : t("unlock"); }
 
 async function tryPin(pin, silent) {
   if (!pin) { focusPin(); return; }
@@ -104,7 +108,7 @@ async function tryPin(pin, silent) {
   } catch (e) {
     setGateBusy(false);
     showGateForm();
-    if (!silent) showGateErr("Could not connect. Check your internet and try again.");
+    if (!silent) showGateErr(t("could_not_connect"));
     focusPin();
     return;
   }
@@ -113,6 +117,7 @@ async function tryPin(pin, silent) {
     sessionPin = pin;
     localStorage.setItem(PIN_KEY, pin);
     allRows = data.rows || []; staffList = data.staff || [];
+    if (data.config && typeof data.config.showSplit === "boolean") showSplitConfig = data.config.showSplit;
     gateEl.classList.add("hidden");
     appEl.classList.remove("hidden");
     render();
@@ -120,7 +125,7 @@ async function tryPin(pin, silent) {
   } else {
     localStorage.removeItem(PIN_KEY);
     showGateForm();
-    if (!silent) showGateErr((data && data.error) || "Wrong PIN.");
+    if (!silent) showGateErr((data && data.error) || t("wrong_pin"));
     focusPin();
   }
 }
@@ -137,10 +142,10 @@ async function loadRequests() {
       pendingRequests = data.requests || [];
       requestsLoadError = "";
     } else {
-      requestsLoadError = (data && data.error) || "Could not load requests.";
+      requestsLoadError = (data && data.error) || t("could_not_load_requests");
     }
   } catch (e) {
-    requestsLoadError = "Could not reach the server. Pending list may be out of date.";
+    requestsLoadError = t("requests_stale");
   }
   const b = document.getElementById("req-badge");
   if (b) {
@@ -161,10 +166,10 @@ async function addStaff(name, role) {
       body: JSON.stringify({ action: "addStaff", pin: sessionPin, name: name, role: role || "Server" }),
     });
     const data = await res.json();
-    if (!data || !data.ok) { window.alert((data && data.error) || "Could not add."); return; }
+    if (!data || !data.ok) { window.alert((data && data.error) || t("could_not_add")); return; }
     await refresh();
   } catch (e) {
-    window.alert("Network error. Try again.");
+    window.alert(t("network_retry"));
   } finally { actionBusy = false; }
 }
 
@@ -178,16 +183,16 @@ async function setStaffActive(name, active) {
       body: JSON.stringify({ action: "setStaffActive", pin: sessionPin, name: name, active: !!active }),
     });
     const data = await res.json();
-    if (!data || !data.ok) { window.alert((data && data.error) || "Could not update."); return; }
+    if (!data || !data.ok) { window.alert((data && data.error) || t("could_not_update")); return; }
     await refresh();
   } catch (e) {
-    window.alert("Network error. Try again.");
+    window.alert(t("network_retry"));
   } finally { actionBusy = false; }
 }
 
 async function resolveRequest(rid, resolution) {
   if (actionBusy) return; // shared mutex with addStaff / setStaffActive
-  const verb = resolution === "approve" ? "Approve and apply changes to the ledger?" : "Deny this request?";
+  const verb = resolution === "approve" ? t("confirm_approve") : t("confirm_deny");
   if (!window.confirm(verb)) return;
   actionBusy = true;
   // Disable any approve/deny buttons for this rid so a second tap can't fire.
@@ -201,7 +206,7 @@ async function resolveRequest(rid, resolution) {
     });
     const data = await res.json();
     if (!data || !data.ok) {
-      window.alert((data && data.error) || "Could not resolve.");
+      window.alert((data && data.error) || t("could_not_resolve"));
       needsRender = true; // re-render so the disabled buttons come back
       return;
     }
@@ -215,7 +220,7 @@ async function resolveRequest(rid, resolution) {
       render();
     }
   } catch (e) {
-    window.alert("Network error. Try again.");
+    window.alert(t("network_retry"));
     needsRender = true;
   } finally {
     actionBusy = false;
@@ -227,10 +232,10 @@ function focusPin() { try { pinInput.focus(); } catch (e) {} }
 
 async function refresh() {
   const view = document.getElementById("view");
-  view.innerHTML = `<div class="loading">Loading...</div>`;
+  view.innerHTML = `<div class="loading">${escapeHtml(t("loading"))}</div>`;
   try {
     const data = await fetchData(sessionPin);
-    if (data && data.ok) { allRows = data.rows || []; staffList = data.staff || []; render(); return; }
+    if (data && data.ok) { allRows = data.rows || []; staffList = data.staff || []; if (data.config && typeof data.config.showSplit === "boolean") showSplitConfig = data.config.showSplit; render(); return; }
     if (data && data.error) { signOut(); return; }
   } catch (e) { /* keep existing data */ }
   render();
@@ -243,25 +248,26 @@ function signOut() {
 
 // ---- rendering ----
 function render() {
-  // Calendar manages its own range, so the period selector is hidden for it.
-  const onCal = activeTab === "calendar";
-  document.getElementById("periods").classList.toggle("hidden", onCal);
-  document.getElementById("custom-range").classList.toggle("show", !onCal && period === "custom");
-  document.getElementById("custom-range").classList.toggle("hidden", onCal);
-  document.getElementById("range-label").classList.toggle("hidden", onCal);
+  // Calendar and Settings manage no date range, so the period selector is hidden.
+  const noRange = activeTab === "calendar" || activeTab === "settings";
+  document.getElementById("periods").classList.toggle("hidden", noRange);
+  document.getElementById("custom-range").classList.toggle("show", !noRange && period === "custom");
+  document.getElementById("custom-range").classList.toggle("hidden", noRange);
+  document.getElementById("range-label").classList.toggle("hidden", noRange);
 
   document.querySelectorAll("#periods button").forEach((b) => b.classList.toggle("active", b.dataset.period === period));
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === activeTab));
 
   const view = document.getElementById("view");
-  if (onCal) { view.innerHTML = calDay ? renderCalDayDetail(calDay) : renderCalendar(); return; }
+  if (activeTab === "settings") { view.innerHTML = renderSettings(); return; }
+  if (activeTab === "calendar") { view.innerHTML = calDay ? renderCalDayDetail(calDay) : renderCalendar(); return; }
 
   const { start, end } = currentRange();
   document.querySelectorAll("#day-presets .day-preset").forEach((b) => b.classList.toggle("active", start === end && b.dataset.day === start));
   const rows = rowsInRange(start, end);
   const shiftCount = new Set(rows.map((r) => r.submissionId)).size;
-  const label = start === end ? start : `${start} to ${end}`;
-  document.getElementById("range-label").textContent = `${label} · ${shiftCount} shift${shiftCount === 1 ? "" : "s"}`;
+  const label = start === end ? start : `${start} ${t("range_sep")} ${end}`;
+  document.getElementById("range-label").textContent = `${label} · ${shiftCount} ${shiftWord(shiftCount)}`;
 
   if (activeTab === "summary") view.innerHTML = renderSummary(rows, start, end);
   else if (activeTab === "shifts") view.innerHTML = renderShifts(rows);
@@ -270,7 +276,7 @@ function render() {
 }
 
 function renderSummary(rows, start, end) {
-  if (!rows.length) return emptyState("No shifts in this period.");
+  if (!rows.length) return emptyState(t("no_shifts_period"));
   let total = 0, kitchen = 0, chefs = 0, servers = 0, trainees = 0;
   const staff = new Set();
   const shifts = new Set();
@@ -284,24 +290,24 @@ function renderSummary(rows, start, end) {
   }
   const cards = `
     <div class="cards">
-      <div class="card hero"><div class="k">Total tips</div><div class="v">${fmt(total)}</div></div>
-      <div class="card"><div class="k">Kitchen</div><div class="v">${fmt(kitchen)}</div></div>
-      <div class="card"><div class="k">Chefs</div><div class="v">${fmt(chefs)}</div></div>
-      <div class="card"><div class="k">Servers</div><div class="v">${fmt(servers)}</div></div>
-      <div class="card"><div class="k">Trainees</div><div class="v">${fmt(trainees)}</div></div>
-      <div class="card"><div class="k">Shifts</div><div class="v">${shifts.size}</div></div>
-      <div class="card"><div class="k">Distinct staff</div><div class="v">${staff.size}</div></div>
+      <div class="card hero"><div class="k">${escapeHtml(t("card_total_tips"))}</div><div class="v">${fmt(total)}</div></div>
+      <div class="card"><div class="k">${escapeHtml(t("kitchen"))}</div><div class="v">${fmt(kitchen)}</div></div>
+      <div class="card"><div class="k">${escapeHtml(t("card_chefs"))}</div><div class="v">${fmt(chefs)}</div></div>
+      <div class="card"><div class="k">${escapeHtml(t("card_servers"))}</div><div class="v">${fmt(servers)}</div></div>
+      <div class="card"><div class="k">${escapeHtml(t("card_trainees"))}</div><div class="v">${fmt(trainees)}</div></div>
+      <div class="card"><div class="k">${escapeHtml(t("card_shifts"))}</div><div class="v">${shifts.size}</div></div>
+      <div class="card"><div class="k">${escapeHtml(t("card_distinct_staff"))}</div><div class="v">${staff.size}</div></div>
     </div>`;
 
   let chart;
   if (start === end) {
-    chart = `<div class="panel"><h2>Shifts across the day</h2>${dayTimelineHtml(rows)}</div>`;
+    chart = `<div class="panel"><h2>${escapeHtml(t("panel_day_shifts"))}</h2>${dayTimelineHtml(rows)}</div>`;
   } else {
     const days = enumerateDays(start, end);
     const byDay = {};
     for (const r of rows) byDay[r.date] = (byDay[r.date] || 0) + r.amount;
     const series = days.map((d) => ({ label: String(isoParts(d).d), value: byDay[d] || 0 }));
-    chart = `<div class="panel"><h2>Daily total tips</h2>${buildBarChart(series)}</div>`;
+    chart = `<div class="panel"><h2>${escapeHtml(t("panel_daily_total"))}</h2>${buildBarChart(series)}</div>`;
   }
   return cards + chart;
 }
@@ -323,7 +329,7 @@ function dayTimelineHtml(rows) {
   }));
   const timed = list.filter((s) => s.start != null && s.end != null && s.end > s.start);
   if (!timed.length) {
-    const series = list.map((s, i) => ({ label: "Shift " + (i + 1), value: s.totalTips }));
+    const series = list.map((s, i) => ({ label: t("shift_n", { n: i + 1 }), value: s.totalTips }));
     return buildBarChart(series);
   }
   const axisMin = Math.min.apply(null, timed.map((s) => s.start));
@@ -372,7 +378,7 @@ function renderRequests() {
     ? `<div class="req-load-err">${escapeHtml(requestsLoadError)}</div>`
     : "";
   if (!pendingRequests.length) {
-    return errBanner + emptyState(requestsLoadError ? "Pending list could not be loaded." : "No pending edit requests.");
+    return errBanner + emptyState(requestsLoadError ? t("pending_load_fail") : t("no_pending"));
   }
   return errBanner + pendingRequests.map((req) => {
     const original = allRows.filter((r) => r.submissionId === req.submissionId);
@@ -380,21 +386,21 @@ function renderRequests() {
     const noteHtml = req.note ? `<div class="req-note">${escapeHtml(req.note)}</div>` : "";
     return `<div class="req-card">
       <div class="req-head">
-        <span class="req-when">${escapeHtml(req.requestedAt || "")} · by ${escapeHtml(req.requestedBy || "?")}</span>
+        <span class="req-when">${escapeHtml(req.requestedAt || "")} · ${escapeHtml(t("req_by"))} ${escapeHtml(req.requestedBy || "?")}</span>
         <div class="req-actions">
-          <button type="button" class="btn-deny" data-resolve="deny" data-rid="${escapeHtml(req.id)}">Deny</button>
-          <button type="button" class="btn-approve" data-resolve="approve" data-rid="${escapeHtml(req.id)}">Approve</button>
+          <button type="button" class="btn-deny" data-resolve="deny" data-rid="${escapeHtml(req.id)}">${escapeHtml(t("deny"))}</button>
+          <button type="button" class="btn-approve" data-resolve="approve" data-rid="${escapeHtml(req.id)}">${escapeHtml(t("approve"))}</button>
         </div>
       </div>
       ${noteHtml}
       <div class="req-diff">
         <div class="diff-col">
-          <div class="diff-label">Current</div>
-          ${original.length ? shiftCardsHtml(original) : `<div class="empty-state">Original shift not found in the ledger.</div>`}
+          <div class="diff-label">${escapeHtml(t("diff_current"))}</div>
+          ${original.length ? shiftCardsHtml(original) : `<div class="empty-state">${escapeHtml(t("orig_not_found"))}</div>`}
         </div>
         <div class="diff-col">
-          <div class="diff-label">Proposed</div>
-          ${proposed.length ? shiftCardsHtml(proposed) : `<div class="empty-state">Proposed data is invalid.</div>`}
+          <div class="diff-label">${escapeHtml(t("diff_proposed"))}</div>
+          ${proposed.length ? shiftCardsHtml(proposed) : `<div class="empty-state">${escapeHtml(t("proposed_invalid"))}</div>`}
         </div>
       </div>
     </div>`;
@@ -405,7 +411,7 @@ function buildBarChart(series) {
   const W = 600, H = 200, padTop = 14, padBottom = 26, padX = 8;
   const plotH = H - padTop - padBottom;
   const n = series.length;
-  if (!n) return `<div class="empty-state">No data.</div>`;
+  if (!n) return `<div class="empty-state">${escapeHtml(t("no_data"))}</div>`;
   const max = Math.max(1, ...series.map((s) => s.value));
   const slot = (W - 2 * padX) / n;
   const baseY = padTop + plotH;
@@ -419,7 +425,7 @@ function buildBarChart(series) {
     bars += `<rect class="bar" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2"><title>${escapeHtml(s.label)}: ${fmt(s.value)}</title></rect>`;
     if (showLabels) bars += `<text x="${(bx + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${escapeHtml(s.label)}</text>`;
   });
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily total tips bar chart">
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeHtml(t("chart_aria"))}">
     <line x1="${padX}" y1="${baseY}" x2="${W - padX}" y2="${baseY}" stroke="#e4e7ee" />
     ${bars}
   </svg>`;
@@ -427,7 +433,7 @@ function buildBarChart(series) {
 
 function renderCalendar() {
   const { y, m } = calMonth;
-  const monthName = new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const monthName = new Date(y, m - 1, 1).toLocaleDateString(locale(), { month: "long", year: "numeric" });
   const byDay = {};
   let maxAmt = 0;
   for (const r of allRows) {
@@ -438,7 +444,9 @@ function renderCalendar() {
   const days = lastDayOfMonth(y, m);
   const today = todayISO();
 
-  const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => `<div class="cal-dow">${d}</div>`).join("");
+  const dowNames = [];
+  for (let i = 0; i < 7; i++) dowNames.push(new Date(2024, 0, 7 + i).toLocaleDateString(locale(), { weekday: "short" }));
+  const dow = dowNames.map((d) => `<div class="cal-dow">${escapeHtml(d)}</div>`).join("");
   let cells = "";
   for (let i = 0; i < firstDow; i++) cells += `<div class="cal-cell empty"></div>`;
   for (let d = 1; d <= days; d++) {
@@ -452,9 +460,9 @@ function renderCalendar() {
   }
   return `<div class="panel">
     <div class="cal-head">
-      <button type="button" id="cal-prev" aria-label="Previous month">&lsaquo;</button>
-      <span class="m">${monthName}</span>
-      <button type="button" id="cal-next" aria-label="Next month">&rsaquo;</button>
+      <button type="button" id="cal-prev" aria-label="${escapeHtml(t("prev_month"))}">&lsaquo;</button>
+      <span class="m">${escapeHtml(monthName)}</span>
+      <button type="button" id="cal-next" aria-label="${escapeHtml(t("next_month"))}">&rsaquo;</button>
     </div>
     <div class="cal-grid">${dow}${cells}</div>
   </div>`;
@@ -462,11 +470,11 @@ function renderCalendar() {
 
 function renderCalDayDetail(iso) {
   const { y, m, d } = isoParts(iso);
-  const title = new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  const title = new Date(y, m - 1, d).toLocaleDateString(locale(), { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   const rows = allRows.filter((r) => r.date === iso);
-  const body = rows.length ? shiftCardsHtml(rows) : `<div class="empty-state">No shifts on this day.</div>`;
+  const body = rows.length ? shiftCardsHtml(rows) : `<div class="empty-state">${escapeHtml(t("no_shifts_day"))}</div>`;
   return `<div class="cal-head">
-      <button type="button" data-cal-back>&lsaquo; Calendar</button>
+      <button type="button" data-cal-back>&lsaquo; ${escapeHtml(t("cal_back"))}</button>
       <span class="m">${escapeHtml(title)}</span>
       <span class="cal-spacer"></span>
     </div>${body}`;
@@ -528,16 +536,16 @@ function shiftCardsHtml(rows) {
       return `<div class="tl-row"><span class="tl-name" title="${escapeHtml(p.recipient || "")}">${escapeHtml(p.recipient || "?")}${pct}</span>${track}<span class="tl-amt">${fmt(p.amount)}</span></div>`;
     }).join("");
 
-    const chefSummary = chefsR.map((c) => `${escapeHtml(c.recipient || "Chef")} ${fmt(c.amount)}`).join("  ·  ");
-    const fixedSummary = fixed.map((f) => `Kitchen ${fmt(f.amount)}`).join("  ·  ");
-    const shiftTag = sh.recipients[0] && sh.recipients[0].shift ? escapeHtml(sh.recipients[0].shift) + " · " : "";
+    const chefSummary = chefsR.map((c) => `${escapeHtml(c.recipient || t("role_chef"))} ${fmt(c.amount)}`).join("  ·  ");
+    const fixedSummary = fixed.map((f) => `${escapeHtml(t("kitchen"))} ${fmt(f.amount)}`).join("  ·  ");
+    const shiftTag = sh.recipients[0] && sh.recipients[0].shift ? escapeHtml(localizeShiftName(sh.recipients[0].shift)) + " · " : "";
 
     return `<div class="shift">
       <div class="top">
         <span class="when">${shiftTag}${escapeHtml(sh.date)} ${escapeHtml(sh.time)}</span>
         <span class="tot">${fmt(sh.totalTips)}</span>
       </div>
-      <div class="by">Entered by ${escapeHtml(sh.enteredBy || "?")}</div>
+      <div class="by">${escapeHtml(t("entered_by_prefix"))}${escapeHtml(sh.enteredBy || "?")}</div>
       ${axisHtml}
       <div class="tl-rows">${rowsHtml}</div>
       ${chefSummary ? `<div class="tl-fixed">${chefSummary}</div>` : ""}
@@ -547,7 +555,7 @@ function shiftCardsHtml(rows) {
 }
 
 function renderShifts(rows) {
-  if (!rows.length) return emptyState("No shifts in this period.");
+  if (!rows.length) return emptyState(t("no_shifts_period"));
   return `<div>${shiftCardsHtml(rows)}</div>`;
 }
 
@@ -556,21 +564,21 @@ function renderStaffManager() {
   const active = sorted.filter((s) => s.active);
   const inactive = sorted.filter((s) => !s.active);
   const row = (s, label, action) => `<div class="staff-row${s.active ? "" : " inactive"}">
-    <span class="staff-name">${escapeHtml(s.name)}${s.role === "Chef" ? " (chef)" : ""}</span>
-    <button type="button" class="staff-btn" data-staff-action="${action}" data-staff-name="${escapeHtml(s.name)}">${label}</button>
+    <span class="staff-name">${escapeHtml(s.name)}${s.role === "Chef" ? " " + escapeHtml(t("chef_suffix")) : ""}</span>
+    <button type="button" class="staff-btn" data-staff-action="${action}" data-staff-name="${escapeHtml(s.name)}">${escapeHtml(label)}</button>
   </div>`;
   const activeHtml = active.length
-    ? active.map((s) => row(s, "Inactivate", "inactivate")).join("")
-    : `<div class="staff-empty">No active staff yet. Add one above.</div>`;
+    ? active.map((s) => row(s, t("inactivate"), "inactivate")).join("")
+    : `<div class="staff-empty">${escapeHtml(t("no_active_staff"))}</div>`;
   const inactiveHtml = inactive.length
-    ? `<details class="staff-inactive"><summary>Inactive (${inactive.length})</summary>${inactive.map((s) => row(s, "Reactivate", "activate")).join("")}</details>`
+    ? `<details class="staff-inactive"><summary>${escapeHtml(t("inactive_count", { n: inactive.length }))}</summary>${inactive.map((s) => row(s, t("reactivate"), "activate")).join("")}</details>`
     : "";
   return `<div class="panel staff-panel">
-    <h2>Manage staff</h2>
+    <h2>${escapeHtml(t("manage_staff"))}</h2>
     <div class="staff-add">
-      <input type="text" id="staff-add-input" placeholder="Add staff name" maxlength="40" autocomplete="off" />
-      <select id="staff-add-role"><option value="Server">Server</option><option value="Chef">Chef</option></select>
-      <button type="button" id="staff-add-btn">Add</button>
+      <input type="text" id="staff-add-input" placeholder="${escapeHtml(t("add_staff_ph"))}" maxlength="40" autocomplete="off" />
+      <select id="staff-add-role"><option value="Server">${escapeHtml(t("role_server"))}</option><option value="Chef">${escapeHtml(t("role_chef"))}</option></select>
+      <button type="button" id="staff-add-btn">${escapeHtml(t("add"))}</button>
     </div>
     <div class="staff-list">${activeHtml}</div>
     ${inactiveHtml}
@@ -585,7 +593,7 @@ function renderPeople(rows) {
     activeSet.has((r.recipient || "").trim().toLowerCase())
   );
   if (!people.length) {
-    return manager + emptyState(activeSet.size ? "No earnings yet for active staff in this period." : "Add staff above to start tracking earnings.");
+    return manager + emptyState(activeSet.size ? t("no_earnings_active") : t("add_staff_start"));
   }
   const agg = {}; // key -> { total, hours, shifts:Set, names: {display: count}, traineePct }
   for (const r of people) {
@@ -607,18 +615,69 @@ function renderPeople(rows) {
   const max = Math.max(1, ...list.map((p) => p.total));
   const body = list.map((p) => {
     const w = p.total > 0 ? Math.max(2, p.total / max * 100) : 0;
-    const tag = p.traineePct != null ? `<span class="lb-tag"> · ${escapeHtml(String(p.traineePct))}% trainee</span>` : "";
+    const tag = p.traineePct != null ? `<span class="lb-tag"> · ${escapeHtml(t("trainee_tag", { pct: p.traineePct }))}</span>` : "";
     const rate = p.hours > 0 ? fmt(p.total / p.hours) + "/h" : "—";
     return `<div class="lb-row">
       <div class="lb-head"><span class="lb-name">${escapeHtml(p.display)}${tag}</span><span class="lb-earned">${fmt(p.total)}</span></div>
       <div class="lb-track">${w ? `<div class="lb-bar" style="width:${w.toFixed(1)}%"></div>` : ""}</div>
-      <div class="lb-meta">${p.shifts} shift${p.shifts === 1 ? "" : "s"} · ${p.hours.toFixed(1)}h · ${rate}</div>
+      <div class="lb-meta">${p.shifts} ${escapeHtml(shiftWord(p.shifts))} · ${p.hours.toFixed(1)}h · ${rate}</div>
     </div>`;
   }).join("");
-  return manager + `<div class="panel"><h2>Earnings by person</h2>${body}</div>`;
+  return manager + `<div class="panel"><h2>${escapeHtml(t("earnings_by_person"))}</h2>${body}</div>`;
 }
 
 function emptyState(msg) { return `<div class="empty-state">${escapeHtml(msg)}</div>`; }
+
+function renderSettings() {
+  const lang = getLang();
+  const langBtn = (code, label) => `<button type="button" data-set-lang="${code}"${lang === code ? ' class="active"' : ""}>${escapeHtml(label)}</button>`;
+  return `<div class="panel">
+    <div class="set-row">
+      <div class="set-label">${escapeHtml(t("settings_language"))}</div>
+      <div class="set-hint">${escapeHtml(t("settings_language_hint"))}</div>
+      <div class="set-langs">${langBtn("en", "English")}${langBtn("ko", "한국어")}</div>
+    </div>
+    <div class="set-row">
+      <div class="set-toggle-row">
+        <div>
+          <div class="set-label">${escapeHtml(t("settings_show_split"))}</div>
+          <div class="set-hint" style="margin-bottom:0">${escapeHtml(t("settings_show_split_hint"))}</div>
+        </div>
+        <label class="set-switch"><input type="checkbox" id="set-show-split"${showSplitConfig ? " checked" : ""}><span class="set-slider"></span></label>
+      </div>
+      <div class="set-status" id="set-split-status"></div>
+    </div>
+  </div>`;
+}
+
+// Language is a device-local preference; re-translate the chrome and re-render
+// the active view so dynamic content picks up the new language immediately.
+function applyAdminLang() {
+  applyStaticI18n();
+  buildDayPresets();
+  render();
+}
+
+// Show-split is a global setting persisted on the backend (PIN protected).
+async function setConfigShowSplit(val) {
+  const status = document.getElementById("set-split-status");
+  if (status) status.textContent = t("saving");
+  try {
+    const res = await fetch(ENDPOINT_URL, {
+      method: "POST", mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "setConfig", pin: sessionPin, showSplit: !!val }),
+    });
+    const data = await res.json();
+    if (!data || !data.ok) throw new Error((data && data.error) || "fail");
+    showSplitConfig = (data.config && typeof data.config.showSplit === "boolean") ? data.config.showSplit : !!val;
+    if (status) status.textContent = t("saved");
+  } catch (e) {
+    const cb = document.getElementById("set-show-split");
+    if (cb) cb.checked = showSplitConfig; // revert to the last known-good value
+    if (status) status.textContent = t("could_not_save_setting");
+  }
+}
 
 // ---- wiring ----
 function wireEvents() {
@@ -656,6 +715,8 @@ function wireEvents() {
 
   // Calendar interactions are delegated on the (persistent) #view container.
   document.getElementById("view").addEventListener("click", (e) => {
+    const langBtn = e.target.closest("[data-set-lang]");
+    if (langBtn) { setLang(langBtn.dataset.setLang); applyAdminLang(); return; }
     if (e.target.closest("#cal-prev")) { calMonth.m--; if (calMonth.m < 1) { calMonth.m = 12; calMonth.y--; } render(); return; }
     if (e.target.closest("#cal-next")) { calMonth.m++; if (calMonth.m > 12) { calMonth.m = 1; calMonth.y++; } render(); return; }
     if (e.target.closest("[data-cal-back]")) { calDay = null; render(); return; }
@@ -676,7 +737,7 @@ function wireEvents() {
     if (staffBtn && staffBtn.dataset.staffName) {
       const action = staffBtn.dataset.staffAction;
       const name = staffBtn.dataset.staffName;
-      if (action === "inactivate" && !window.confirm(`Inactivate ${name}? They will be hidden from the entry form and leaderboard.`)) return;
+      if (action === "inactivate" && !window.confirm(t("confirm_inactivate", { name: name }))) return;
       setStaffActive(name, action === "activate");
       return;
     }
@@ -688,6 +749,11 @@ function wireEvents() {
       const name = e.target.value.trim();
       if (name) addStaff(name, roleSel ? roleSel.value : "Server");
     }
+  });
+
+  // Settings: the show-split toggle is a checkbox change, not a click.
+  document.getElementById("view").addEventListener("change", (e) => {
+    if (e.target && e.target.id === "set-show-split") setConfigShowSplit(e.target.checked);
   });
 
   const modal = document.getElementById("shift-modal");
@@ -718,19 +784,21 @@ function wireEvents() {
 }
 
 function buildDayPresets() {
-  const wd = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const today = todayISO();
   let html = "";
   for (let back = 2; back <= 6; back++) {
     const d = addDays(today, -back);
-    html += `<button type="button" class="preset day-preset" data-day="${d}">${wd[isoWeekday(d)]}</button>`;
+    const p = isoParts(d);
+    const wd = new Date(p.y, p.m - 1, p.d).toLocaleDateString(locale(), { weekday: "short" });
+    html += `<button type="button" class="preset day-preset" data-day="${d}">${escapeHtml(wd)}</button>`;
   }
   document.getElementById("day-presets").innerHTML = html;
 }
 
 function init() {
-  const t = isoParts(todayISO());
-  calMonth = { y: t.y, m: t.m };
+  applyStaticI18n();
+  const today = isoParts(todayISO());
+  calMonth = { y: today.y, m: today.m };
   wireEvents();
   buildDayPresets();
   const stored = localStorage.getItem(PIN_KEY);
