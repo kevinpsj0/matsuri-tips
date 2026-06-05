@@ -1,7 +1,7 @@
 // calc.test.js — run with: node calc.test.js
 // Tests the pure core in calc.js (Node export). Browser mirror lives in test.html.
 const assert = require("assert");
-const { splitShift, minutesWorked, getSlot, findSlotByTimes, SHIFT_SLOTS, firstDuplicateName, slotLabel, configure, resetConfig } = require("./calc.js");
+const { splitShift, minutesWorked, getSlot, findSlotByTimes, SHIFT_SLOTS, firstDuplicateName, slotLabel, configure, resetConfig, aggregatePeople } = require("./calc.js");
 
 let pass = 0, fail = 0;
 function test(name, fn) {
@@ -169,6 +169,52 @@ test("custom slots via configure: getSlot and splitShift use them", () => {
   const out = splitShift({ shiftType: "lunch", totalTips: 100, servers: [srv("A", "X")], chefs: [] });
   assert.strictEqual(out.servers[0].slotLabel, "10a–2p");
   assert.strictEqual(out.servers[0].hours, 4);
+});
+
+const erow = (recipient, role, amount, hours, submissionId, traineePct) =>
+  ({ recipient, role, amount, hours, submissionId, traineePct: traineePct == null ? null : traineePct, date: "2026-06-01", shift: "Lunch" });
+
+test("aggregatePeople sums totals/hours/shifts per person and ranks by total", () => {
+  const rows = [
+    erow("Bob", "Server", 50, 5, "s1"),
+    erow("Alice", "Server", 80, 4, "s1"),
+    erow("Alice", "Server", 40, 3, "s2"),
+  ];
+  const { active, former, max } = aggregatePeople(rows, new Set(["alice", "bob"]));
+  assert.strictEqual(former.length, 0);
+  assert.strictEqual(active.length, 2);
+  assert.strictEqual(active[0].display, "Alice");
+  assert.strictEqual(active[0].total, 120);
+  assert.strictEqual(active[0].hours, 7);
+  assert.strictEqual(active[0].shifts, 2);
+  assert.strictEqual(active[1].display, "Bob");
+  assert.strictEqual(max, 120);
+});
+
+test("aggregatePeople puts non-active earners in former, merges case-insensitively", () => {
+  const rows = [
+    erow("alice", "Server", 30, 2, "s1"),
+    erow("Alice", "Server", 10, 1, "s2"),
+    erow("Cara", "Trainee", 20, 2, "s3", 50),
+  ];
+  const { active, former } = aggregatePeople(rows, new Set(["alice"]));
+  assert.strictEqual(active.length, 1);
+  assert.strictEqual(active[0].total, 40);
+  assert.strictEqual(former.length, 1);
+  assert.strictEqual(former[0].display, "Cara");
+  assert.strictEqual(former[0].traineePct, 50);
+  assert.strictEqual(former[0].isFormer, true);
+});
+
+test("aggregatePeople ignores chef/kitchen rows and keeps per-person rows", () => {
+  const rows = [
+    erow("Alice", "Server", 40, 3, "s1"),
+    erow("Cho", "Chef", 85, 0, "s1"),
+    erow("Kitchen", "Kitchen", 60, 0, "s1"),
+  ];
+  const { active } = aggregatePeople(rows, new Set(["alice"]));
+  assert.strictEqual(active.length, 1);
+  assert.strictEqual(active[0].rows.length, 1);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

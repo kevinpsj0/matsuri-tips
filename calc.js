@@ -144,6 +144,44 @@ function splitShift(input) {
 
   return { shiftType: input.shiftType, kitchen: kitchenCents / 100, servers: serversOut, chefs: chefsOut };
 }
+// Aggregate ledger rows into per-person earnings for the admin leaderboard.
+// Only Server/Trainee rows count (chefs and the Kitchen fund are excluded).
+// activeKeys is a Set of lowercased active staff names; anyone earning who is
+// not in it is partitioned into `former`. Returns active/former arrays (each
+// ranked by total desc) and a shared `max` for comparable bar widths.
+function aggregatePeople(rows, activeKeys) {
+  var agg = {};
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (r.role !== "Server" && r.role !== "Trainee") continue;
+    var name = String(r.recipient || "").trim();
+    var key = name.toLowerCase();
+    if (!key) continue;
+    if (!agg[key]) agg[key] = { key: key, total: 0, hours: 0, shifts: {}, names: {}, traineePct: null, rows: [] };
+    var a = agg[key];
+    a.total += r.amount || 0;
+    a.hours += r.hours || 0;
+    if (r.submissionId) a.shifts[r.submissionId] = true;
+    a.names[name] = (a.names[name] || 0) + 1;
+    if (r.role === "Trainee" && r.traineePct != null) a.traineePct = r.traineePct;
+    a.rows.push(r);
+  }
+  var people = Object.keys(agg).map(function (k) {
+    var a = agg[k];
+    var display = Object.keys(a.names).sort(function (x, y) { return a.names[y] - a.names[x]; })[0];
+    return {
+      key: a.key, display: display, total: a.total, hours: a.hours,
+      shifts: Object.keys(a.shifts).length, traineePct: a.traineePct,
+      rows: a.rows, isFormer: !activeKeys.has(a.key),
+    };
+  });
+  var byTotal = function (x, y) { return y.total - x.total; };
+  var active = people.filter(function (p) { return !p.isFormer; }).sort(byTotal);
+  var former = people.filter(function (p) { return p.isFormer; }).sort(byTotal);
+  var max = people.reduce(function (m, p) { return p.total > m ? p.total : m; }, 1);
+  return { active: active, former: former, max: max };
+}
+
 // --- END VERBATIM MIRROR ---
 
 if (typeof window !== "undefined") {
@@ -156,7 +194,8 @@ if (typeof window !== "undefined") {
   window.slotLabel = slotLabel;
   window.configure = configure;
   window.resetConfig = resetConfig;
+  window.aggregatePeople = aggregatePeople;
 }
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { SHIFT_SLOTS: SHIFT_SLOTS, DEFAULT_SLOTS: DEFAULT_SLOTS, DEFAULT_KITCHEN_PCT: DEFAULT_KITCHEN_PCT, getSlot: getSlot, findSlotByTimes: findSlotByTimes, firstDuplicateName: firstDuplicateName, splitShift: splitShift, minutesWorked: minutesWorked, slotLabel: slotLabel, configure: configure, resetConfig: resetConfig };
+  module.exports = { SHIFT_SLOTS: SHIFT_SLOTS, DEFAULT_SLOTS: DEFAULT_SLOTS, DEFAULT_KITCHEN_PCT: DEFAULT_KITCHEN_PCT, getSlot: getSlot, findSlotByTimes: findSlotByTimes, firstDuplicateName: firstDuplicateName, splitShift: splitShift, minutesWorked: minutesWorked, slotLabel: slotLabel, configure: configure, resetConfig: resetConfig, aggregatePeople: aggregatePeople };
 }
