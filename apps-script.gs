@@ -229,7 +229,7 @@ function splitsFromRows(rows, tz) {
 function readStaffRows(sheet) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  const values = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  const values = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
   const seen = {};
   const out = [];
   for (let i = 0; i < values.length; i++) {
@@ -242,7 +242,9 @@ function readStaffRows(sheet) {
     // Empty cell or anything non-FALSE counts as active (backward compat).
     const active = !(rawB === false || String(rawB).toLowerCase() === "false" || String(rawB).toLowerCase() === "inactive");
     const role = String(values[i][2] || "").trim().toLowerCase() === "chef" ? "Chef" : "Server";
-    out.push({ name: name, active: active, role: role, rowIdx: i + 2 });
+    const tp = Number(values[i][3]);
+    const traineePct = (tp === 25 || tp === 50 || tp === 75) ? tp : null;
+    out.push({ name: name, active: active, role: role, traineePct: traineePct, rowIdx: i + 2 });
   }
   return out;
 }
@@ -253,7 +255,7 @@ function getOrCreateStaffSheet(ss) {
   if (!sheet) {
     try {
       sheet = ss.insertSheet("Staff", ss.getNumSheets());
-      sheet.getRange(1, 1, 1, 3).setValues([["Name", "Active", "Role"]]).setFontWeight("bold");
+      sheet.getRange(1, 1, 1, 4).setValues([["Name", "Active", "Role", "Trainee %"]]).setFontWeight("bold");
       sheet.setFrozenRows(1);
       return sheet;
     } catch (e) {
@@ -261,12 +263,15 @@ function getOrCreateStaffSheet(ss) {
       if (!sheet) throw e;
     }
   }
-  // Backfill the Active + Role headers without touching existing names.
+  // Backfill the Active + Role + Trainee % headers without touching existing names.
   if (String(sheet.getRange(1, 2).getValue() || "") !== "Active") {
     sheet.getRange(1, 2).setValue("Active").setFontWeight("bold");
   }
   if (String(sheet.getRange(1, 3).getValue() || "") !== "Role") {
     sheet.getRange(1, 3).setValue("Role").setFontWeight("bold");
+  }
+  if (String(sheet.getRange(1, 4).getValue() || "") !== "Trainee %") {
+    sheet.getRange(1, 4).setValue("Trainee %").setFontWeight("bold");
   }
   return sheet;
 }
@@ -276,7 +281,7 @@ function handleFetchStaff() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Staff");
   if (!sheet) return jsonResponse({ ok: true, staff: [] });
   const staff = readStaffRows(sheet).filter(function (s) { return s.active; })
-    .map(function (s) { return { name: s.name, role: s.role }; });
+    .map(function (s) { return { name: s.name, role: s.role, traineePct: s.traineePct }; });
   return jsonResponse({ ok: true, staff: staff });
 }
 
@@ -309,7 +314,7 @@ function handleAddStaff(payload) {
         return jsonResponse({ ok: true, reactivated: true });
       }
     }
-    sheet.appendRow([safeText(name), true, role]);
+    sheet.appendRow([safeText(name), true, role, ""]);
     return jsonResponse({ ok: true });
   } catch (err) {
     return jsonResponse({ ok: false, retryable: true, error: String(err && err.message || err) });
@@ -351,6 +356,60 @@ function handleSetStaffActive(payload) {
   }
 }
 
+// Admin-only: set (or clear) a staff member's trainee level. traineePct is
+// null/empty to clear, or 25/50/75. Stored in the Staff "Trainee %" column.
+function handleSetStaffTrainee(payload) {
+  const storedPin = PropertiesService.getScriptProperties().getProperty("ADMIN_PIN");
+  if (!storedPin) return jsonResponse({ ok: false, error: "Admin access is not configured yet." });
+  if (typeof payload.pin !== "string" || payload.pin !== storedPin) {
+    Utilities.sleep(1000);
+    return jsonResponse({ ok: false, error: "Wrong PIN." });
+  }
+  const name = typeof payload.name === "string" ? payload.name.trim() : "";
+  if (!name) return jsonResponse({ ok: false, error: "Name is required" });
+  let cell = "";
+  if (payload.traineePct !== null && payload.traineePct !== undefined && payload.traineePct !== "" && payload.traineePct !== false) {
+    const pct = Number(payload.traineePct);
+    if (pct !== 25 && pct !== 50 && pct !== 75) return jsonResponse({ ok: false, error: "Trainee level must be 25, 50, or 75" });
+    cell = pct;
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return jsonResponse({ ok: false, retryable: true, error: "Busy, try again." });
+  try {
+    const sheet = getOrCreateStaffSheet(ss);
+    const rows = readStaffRows(sheet);
+    const key = name.toLowerCase();
+    for (const s of rows) {
+      if (s.name.toLowerCase() === key) {
+        sheet.getRange(s.rowIdx, 4).setValue(cell);
+        return jsonResponse({ ok: true });
+      }
+    }
+    return jsonResponse({ ok: false, error: name + " is not on the roster." });
+  } catch (err) {
+    return jsonResponse({ ok: false, retryable: true, error: String(err && err.message || err) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// The Staff roster is the source of truth for trainee status. Overwrite each
+// submitted server's trainee/pct from the roster so a stale phone (or an
+// off-roster "Other" name) can't set the wrong level.
+function applyRosterTrainees(servers) {
+  if (!Array.isArray(servers) || !servers.length) return;
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Staff");
+  const map = {};
+  if (sheet) readStaffRows(sheet).forEach(function (s) { if (s.traineePct) map[s.name.toLowerCase()] = s.traineePct; });
+  servers.forEach(function (sv) {
+    const pct = map[String(sv && sv.name || "").trim().toLowerCase()];
+    if (pct === 25 || pct === 50 || pct === 75) { sv.trainee = true; sv.pct = pct; }
+    else { sv.trainee = false; sv.pct = null; }
+  });
+}
+
 // Read path for the admin dashboard. PIN is checked against the ADMIN_PIN
 // Script Property (Project Settings -> Script Properties), never stored in code.
 function handleFetchData(payload) {
@@ -367,7 +426,7 @@ function handleFetchData(payload) {
   const sheet = ss.getSheets()[0];
   const lastRow = sheet.getLastRow();
   const staffSheet = ss.getSheetByName("Staff");
-  const staff = staffSheet ? readStaffRows(staffSheet).map(function (s) { return { name: s.name, active: s.active, role: s.role }; }) : [];
+  const staff = staffSheet ? readStaffRows(staffSheet).map(function (s) { return { name: s.name, active: s.active, role: s.role, traineePct: s.traineePct }; }) : [];
   if (lastRow < 2) return jsonResponse({ ok: true, rows: [], staff: staff, config: configObject() });
 
   const tz = ss.getSpreadsheetTimeZone();
@@ -448,6 +507,8 @@ function validateShiftFields(p) {
     if (!s || typeof s !== "object") return "Invalid server";
     if (typeof s.name !== "string" || !s.name.trim() || s.name.length > 40) return "Invalid server name";
     if (!getSlot(p.shiftType, s.slot)) return "unknown_slot:Invalid time slot for " + (s.name || "server");
+    // Trainee is roster-enforced via applyRosterTrainees before this runs on the
+    // write paths, so trainee/pct here are already authoritative; this just guards.
     if (s.trainee && s.pct !== 25 && s.pct !== 50 && s.pct !== 75) return "Trainee level must be 25, 50, or 75";
   }
   const dupServer = firstDuplicateName(p.servers.map(function (s) { return s.name; }));
@@ -659,6 +720,7 @@ function handleResolveRequest(payload) {
         return jsonResponse({ ok: false, error: "Stored proposal is invalid" });
       }
       configure({ slots: getSlots(), kitchenPct: getKitchenPct() });
+      if (proposed && typeof proposed === "object") applyRosterTrainees(proposed.servers);
       const validation = validateShiftFields(proposed);
       if (validation) return jsonResponse({ ok: false, error: "Proposal invalid: " + validation.replace("unknown_slot:", "") });
 
@@ -1021,6 +1083,9 @@ function doPost(e) {
   if (payload && payload.action === "setStaffActive") {
     return handleSetStaffActive(payload);
   }
+  if (payload && payload.action === "setStaffTrainee") {
+    return handleSetStaffTrainee(payload);
+  }
   if (payload && payload.action === "setSlots") {
     return handleSetSlots(payload);
   }
@@ -1031,6 +1096,7 @@ function doPost(e) {
   // Direct shift-write path. Load the active slot table + kitchen % before
   // validation (getSlot) and the split.
   configure({ slots: getSlots(), kitchenPct: getKitchenPct() });
+  if (payload && typeof payload === "object") applyRosterTrainees(payload.servers);
 
   const validationError = validatePayload(payload);
   if (validationError) {

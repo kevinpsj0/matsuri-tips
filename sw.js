@@ -1,4 +1,4 @@
-const CACHE = "matsuri-tips-v37";
+const CACHE = "matsuri-tips-v38";
 const ASSETS = [
   "./",
   "./index.html",

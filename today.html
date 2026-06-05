@@ -89,11 +89,8 @@
   .ep-row { display: flex; gap: .4rem; align-items: center; margin-bottom: .3rem; }
   .ep-row > input, .ep-row > select { flex: 1; min-width: 0; }
   .ep-remove { border: 0; background: transparent; color: #b00; font-size: 1.1rem; cursor: pointer; padding: 0 .4rem; line-height: 1; }
-  .ep-trainee-row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; font-size: .85rem; }
-  .modal-card .ep-trainee-row label { display: inline-flex; align-items: center; gap: .4rem; margin: 0; }
   .modal-card .chef-check { display: flex; align-items: center; gap: .5rem; font-weight: 400; font-size: .95rem; margin: 0; padding: .35rem 0; cursor: pointer; }
   .ep-pct { display: flex; gap: .3rem; }
-  .ep-pct.hidden { display: none; }
   .ep-pct button { padding: .3rem .55rem; font-size: .78rem; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; }
   .ep-pct button.selected { background: var(--indigo); color: #fff; border-color: var(--indigo); }
   .add-btn { border: 1px dashed #999; background: #fff; padding: .55rem; width: 100%; border-radius: 8px; cursor: pointer; margin-top: .25rem; }
@@ -285,19 +282,12 @@ function slotOptions(shift, selectedId) {
 }
 
 function personRowHtml(p) {
-  const trainee = !!p.trainee;
-  const pct = (trainee && (p.pct === 25 || p.pct === 50 || p.pct === 75)) ? p.pct : 50;
-  const btn = (v) => `<button type="button" data-pct="${v}"${pct === v ? ' class="selected"' : ""}>${v}%</button>`;
   return `<div class="edit-person">
     <div class="ep-row">
       <input type="text" class="ep-name" maxlength="40" placeholder="${escapeHtml(t("ph_name"))}" value="${escapeHtml(p.name || "")}">
       <button type="button" class="ep-remove" aria-label="${escapeHtml(t("remove"))}">&times;</button>
     </div>
     <div class="ep-row"><select class="ep-slot">${slotOptions(editShift, p.slot || "")}</select></div>
-    <div class="ep-trainee-row">
-      <label><input type="checkbox" class="ep-trainee"${trainee ? " checked" : ""}> ${escapeHtml(t("trainee"))}</label>
-      <div class="ep-pct${trainee ? "" : " hidden"}">${btn(25)}${btn(50)}${btn(75)}</div>
-    </div>
   </div>`;
 }
 
@@ -306,16 +296,13 @@ function renderEditPeople(people) {
 }
 
 function readEditServers() {
-  return Array.from(editPeople.querySelectorAll(".edit-person")).map((row) => {
-    const trainee = row.querySelector(".ep-trainee").checked;
-    const sel = row.querySelector(".ep-pct button.selected");
-    return {
-      name: row.querySelector(".ep-name").value.trim(),
-      slot: row.querySelector(".ep-slot").value,
-      trainee: trainee,
-      pct: trainee ? (sel ? parseInt(sel.dataset.pct, 10) : 50) : null,
-    };
-  });
+  // Trainee level is set in the admin roster; the backend applies it on approve.
+  return Array.from(editPeople.querySelectorAll(".edit-person")).map((row) => ({
+    name: row.querySelector(".ep-name").value.trim(),
+    slot: row.querySelector(".ep-slot").value,
+    trainee: false,
+    pct: null,
+  }));
 }
 
 function renderEditChefs(checkedNames) {
@@ -344,37 +331,20 @@ function renderEditShiftToggle() {
   document.querySelectorAll("#edit-shift button").forEach(b => b.classList.toggle("selected", b.dataset.shift === editShift));
 }
 
-// Delegated handlers on the people container
+// Delegated handler on the people container
 editPeople.addEventListener("click", (e) => {
   const remove = e.target.closest(".ep-remove");
   if (remove) {
     const rows = editPeople.querySelectorAll(".edit-person");
     if (rows.length <= 1) return; // keep at least one
     remove.closest(".edit-person").remove();
-    return;
-  }
-  const pctBtn = e.target.closest(".ep-pct button[data-pct]");
-  if (pctBtn) {
-    const group = pctBtn.parentElement;
-    group.querySelectorAll("button").forEach((b) => b.classList.toggle("selected", b === pctBtn));
-    return;
-  }
-});
-editPeople.addEventListener("change", (e) => {
-  const toggle = e.target.closest(".ep-trainee");
-  if (!toggle) return;
-  const row = toggle.closest(".edit-person");
-  const pct = row.querySelector(".ep-pct");
-  pct.classList.toggle("hidden", !toggle.checked);
-  if (toggle.checked && !pct.querySelector("button.selected")) {
-    pct.querySelectorAll("button").forEach((b) => b.classList.toggle("selected", b.dataset.pct === "50"));
   }
 });
 
 editAdd.addEventListener("click", () => {
   const rows = editPeople.querySelectorAll(".edit-person");
   if (rows.length >= 12) return;
-  editPeople.insertAdjacentHTML("beforeend", personRowHtml({ name: "", slot: "", trainee: false }));
+  editPeople.insertAdjacentHTML("beforeend", personRowHtml({ name: "", slot: "" }));
 });
 
 document.getElementById("edit-shift").addEventListener("click", (e) => {
@@ -405,9 +375,9 @@ content.addEventListener("click", (e) => {
   renderEditShiftToggle();
   const servers = recs.filter((r) => r.role === "Server" || r.role === "Trainee").map((r) => {
     const slot = findSlotByTimes(editShift, r.timeIn, r.timeOut);
-    return { name: r.recipient || "", slot: slot ? slot.id : "", trainee: r.role === "Trainee", pct: r.traineePct };
+    return { name: r.recipient || "", slot: slot ? slot.id : "" };
   });
-  renderEditPeople(servers.length ? servers : [{ name: "", slot: "", trainee: false }]);
+  renderEditPeople(servers.length ? servers : [{ name: "", slot: "" }]);
   // If a server's recorded slot no longer matches a current slot (owner retimed/removed it),
   // the dropdown shows blank; hint the editor to re-pick rather than only erroring on Send.
   reqErr.textContent = servers.some(s => s.name && !s.slot) ? t("slot_retimed_hint") : "";

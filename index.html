@@ -60,15 +60,6 @@
   .field-error { color: #b00; font-size: .85rem; margin-top: .25rem; min-height: 1em; }
   .toggle-row { display: flex; align-items: center; gap: .75rem; margin: 1rem 0 .25rem; }
   .toggle-row span { font-weight: 600; }
-  .switch { position: relative; width: 3rem; height: 1.75rem; flex: none; }
-  .switch input { opacity: 0; width: 0; height: 0; }
-  .slider { position: absolute; inset: 0; background: #ccc; border-radius: 1rem; transition: .2s; cursor: pointer; }
-  .slider::before {
-    content: ""; position: absolute; height: 1.5rem; width: 1.5rem; left: .125rem; bottom: .125rem;
-    background: #fff; border-radius: 50%; transition: .2s;
-  }
-  .switch input:checked + .slider { background: var(--indigo); }
-  .switch input:checked + .slider::before { transform: translateX(1.25rem); }
   .pct-buttons { display: flex; gap: .5rem; margin-top: .5rem; }
   .pct-buttons button {
     flex: 1; padding: .75rem; font-size: 1rem; border: 1px solid #ccc; border-radius: 6px;
@@ -348,13 +339,25 @@ const ME_KEY = "matsuri_me";
 function getMe() { try { return localStorage.getItem(ME_KEY) || ""; } catch (e) { return ""; } }
 function setMe(name) { try { name ? localStorage.setItem(ME_KEY, name) : localStorage.removeItem(ME_KEY); } catch (e) {} }
 let staffNames = [];
+let traineeByName = {}; // lowercase server name -> trainee pct (25/50/75); managed in admin
 
 function setStaff(list) {
   const arr = Array.isArray(list) ? list : [];
   staffNames = arr.filter(s => (s.role || "Server") !== "Chef").map(s => s.name);
   chefRoster = arr.filter(s => (s.role || "Server") === "Chef").map(s => ({ name: s.name }));
+  traineeByName = {};
+  arr.forEach(s => {
+    const p = Number(s.traineePct);
+    if ((p === 25 || p === 50 || p === 75) && (s.role || "Server") !== "Chef") traineeByName[String(s.name).trim().toLowerCase()] = p;
+  });
   renderChefList();
   repopulateNameSelects();
+}
+
+// Trainee status is set by the admin in the People tab, not per shift. Derive it
+// from the roster for whoever is selected.
+function traineeFor(name) {
+  return traineeByName[String(name || "").trim().toLowerCase()] || null;
 }
 
 // Name fields are a native select of active staff, plus a placeholder and an
@@ -412,15 +415,6 @@ function createPersonRow() {
     '<input type="text" class="p-name-other name-other hidden" autocomplete="off" maxlength="40" data-i18n-ph="ph_name" placeholder="Name">' +
     '<label data-i18n="time_slot">Time slot</label>' +
     '<select class="p-slot"></select>' +
-    '<div class="toggle-row">' +
-      '<label class="switch"><input type="checkbox" class="p-trainee"><span class="slider"></span></label>' +
-      '<span data-i18n="trainee">Trainee</span>' +
-    '</div>' +
-    '<div class="pct-buttons hidden">' +
-      '<button type="button" data-pct="25">25%</button>' +
-      '<button type="button" data-pct="50" class="selected">50%</button>' +
-      '<button type="button" data-pct="75">75%</button>' +
-    '</div>' +
     '<div class="field-error"></div>';
   applyStaticI18n(row);
 
@@ -431,21 +425,6 @@ function createPersonRow() {
   populateSlotSelect(slotSel);
   slotSel.addEventListener("change", updatePreview);
 
-  const traineeToggle = row.querySelector(".p-trainee");
-  const pctButtons = row.querySelector(".pct-buttons");
-  traineeToggle.addEventListener("change", () => {
-    pctButtons.classList.toggle("hidden", !traineeToggle.checked);
-    if (traineeToggle.checked) {
-      pctButtons.querySelectorAll("button").forEach(b => b.classList.toggle("selected", b.dataset.pct === "50"));
-    }
-    updatePreview();
-  });
-  pctButtons.addEventListener("click", (e) => {
-    const btn = e.target.closest("button[data-pct]");
-    if (!btn) return;
-    pctButtons.querySelectorAll("button").forEach(b => b.classList.toggle("selected", b === btn));
-    updatePreview();
-  });
   row.querySelector(".remove-person").addEventListener("click", () => {
     row.remove();
     relabelPeople();
@@ -478,13 +457,13 @@ function updateAddButton() {
 
 function readServers() {
   return Array.from(peopleContainer.querySelectorAll(".person")).map(row => {
-    const trainee = row.querySelector(".p-trainee").checked;
-    const sel = row.querySelector(".pct-buttons button.selected");
+    const name = rowName(row);
+    const pct = traineeFor(name); // trainee level comes from the roster, not the form
     return {
-      name: rowName(row),
+      name: name,
       slot: row.querySelector(".p-slot").value,
-      trainee: trainee,
-      pct: trainee ? (sel ? parseInt(sel.dataset.pct, 10) : 50) : null,
+      trainee: !!pct,
+      pct: pct || null,
     };
   });
 }

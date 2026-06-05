@@ -184,6 +184,23 @@ async function setStaffActive(name, active) {
   } finally { actionBusy = false; }
 }
 
+async function setStaffTrainee(name, traineePct) {
+  if (actionBusy) return;
+  actionBusy = true;
+  try {
+    const res = await fetch(ENDPOINT_URL, {
+      method: "POST", mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "setStaffTrainee", pin: sessionPin, name: name, traineePct: (traineePct == null ? null : Number(traineePct)) }),
+    });
+    const data = await res.json();
+    if (!data || !data.ok) { window.alert((data && data.error) || t("could_not_update")); return; }
+    await refresh();
+  } catch (e) {
+    window.alert(t("network_retry"));
+  } finally { actionBusy = false; }
+}
+
 async function resolveRequest(rid, resolution) {
   if (actionBusy) return; // shared mutex with addStaff / setStaffActive
   const verb = resolution === "approve" ? t("confirm_approve") : t("confirm_deny");
@@ -375,6 +392,15 @@ function openShiftModal(sid) {
 function synthesizePropRows(req) {
   if (!req || !req.proposed || typeof splitShift !== "function") return [];
   const p = req.proposed;
+  // Reflect roster-managed trainee levels in the preview (backend applies the
+  // same on approve, so the proposal stored without trainee still shows right).
+  const tmap = {};
+  staffList.forEach((s) => { if (s.traineePct) tmap[s.name.toLowerCase()] = s.traineePct; });
+  (p.servers || []).forEach((sv) => {
+    const tp = tmap[String(sv.name || "").trim().toLowerCase()];
+    if (tp === 25 || tp === 50 || tp === 75) { sv.trainee = true; sv.pct = tp; }
+    else { sv.trainee = false; sv.pct = null; }
+  });
   let splits;
   try { splits = splitShift(p); } catch (e) { return []; }
   const base = { date: req.shiftDate || "", time: req.shiftTime || "", shift: (p.shiftType === "lunch" ? "Lunch" : "Dinner"), enteredBy: p.enteredBy || "", totalTips: p.totalTips || 0, submissionId: req.submissionId || "" };
@@ -561,11 +587,27 @@ function renderStaffManager() {
     <span class="staff-name">${escapeHtml(s.name)}${showRole && isChef(s) ? " " + escapeHtml(t("chef_suffix")) : ""}</span>
     <button type="button" class="staff-btn" data-staff-action="${action}" data-staff-name="${escapeHtml(s.name)}">${escapeHtml(label)}</button>
   </div>`;
-  const group = (members, title) => members.length
-    ? `<div class="staff-group"><div class="staff-group-h">${escapeHtml(title)}</div>${members.map((s) => row(s, t("inactivate"), "inactivate", false)).join("")}</div>`
+  // Active servers also get a Trainee toggle; when on, a 25/50/75 selector.
+  const pctBtn = (s, v) => `<button type="button" class="trainee-pct${s.traineePct === v ? " selected" : ""}" data-trainee-pct="${v}" data-staff-name="${escapeHtml(s.name)}">${v}%</button>`;
+  const serverRow = (s) => {
+    const isTrainee = s.traineePct === 25 || s.traineePct === 50 || s.traineePct === 75;
+    return `<div class="staff-row staff-server">
+      <div class="staff-server-top">
+        <span class="staff-name">${escapeHtml(s.name)}</span>
+        <button type="button" class="staff-btn" data-staff-action="inactivate" data-staff-name="${escapeHtml(s.name)}">${escapeHtml(t("inactivate"))}</button>
+      </div>
+      <div class="staff-trainee">
+        <label class="set-switch sm"><input type="checkbox" class="staff-trainee-cb" data-staff-name="${escapeHtml(s.name)}"${isTrainee ? " checked" : ""}><span class="set-slider"></span></label>
+        <span class="staff-trainee-lbl">${escapeHtml(t("trainee"))}</span>
+        <div class="trainee-pcts${isTrainee ? "" : " hidden"}">${pctBtn(s, 25)}${pctBtn(s, 50)}${pctBtn(s, 75)}</div>
+      </div>
+    </div>`;
+  };
+  const group = (members, title, renderFn) => members.length
+    ? `<div class="staff-group"><div class="staff-group-h">${escapeHtml(title)}</div>${members.map(renderFn).join("")}</div>`
     : "";
   const activeHtml = active.length
-    ? group(active.filter((s) => !isChef(s)), t("card_servers")) + group(active.filter(isChef), t("card_chefs"))
+    ? group(active.filter((s) => !isChef(s)), t("card_servers"), serverRow) + group(active.filter(isChef), t("card_chefs"), (s) => row(s, t("inactivate"), "inactivate", false))
     : `<div class="staff-empty">${escapeHtml(t("no_active_staff"))}</div>`;
   const inactiveHtml = inactive.length
     ? `<details class="staff-inactive"><summary>${escapeHtml(t("inactive_count", { n: inactive.length }))}</summary>${inactive.map((s) => row(s, t("reactivate"), "activate", true)).join("")}</details>`
@@ -809,6 +851,11 @@ function wireEvents() {
       if (name) addStaff(name, roleSel ? roleSel.value : "Server");
       return;
     }
+    const tpBtn = e.target.closest("[data-trainee-pct]");
+    if (tpBtn && tpBtn.dataset.staffName) {
+      setStaffTrainee(tpBtn.dataset.staffName, Number(tpBtn.dataset.traineePct));
+      return;
+    }
     const staffBtn = e.target.closest("[data-staff-action]");
     if (staffBtn && staffBtn.dataset.staffName) {
       const action = staffBtn.dataset.staffAction;
@@ -838,6 +885,7 @@ function wireEvents() {
     if (e.target && e.target.id === "set-show-split") setConfigShowSplit(e.target.checked);
     if (e.target && e.target.id === "set-kitchen-pct") saveKitchenPct(e.target.value);
     if (e.target && (e.target.classList.contains("slot-in") || e.target.classList.contains("slot-out"))) updateSlotField(e.target);
+    if (e.target && e.target.classList.contains("staff-trainee-cb")) setStaffTrainee(e.target.dataset.staffName, e.target.checked ? 50 : null);
   });
 
   const modal = document.getElementById("shift-modal");
