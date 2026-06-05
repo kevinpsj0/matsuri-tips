@@ -126,7 +126,7 @@
     <button type="button" data-lang="ko">한국어</button>
   </div>
   <a class="view-today hidden" id="admin-link" href="admin.html">&larr; <span data-i18n="admin_link">Admin</span></a>
-  <a class="view-today" href="today.html"><span data-i18n="today_link">Today</span> &rarr;</a>
+  <a class="view-today" id="today-link" href="today.html"><span data-i18n="today_link">Today</span> &rarr;</a>
 </header>
 
 <div id="banner" class="banner hidden"></div>
@@ -593,10 +593,13 @@ populateNameSelect(enteredByEl);
 wireNameField(enteredByEl, enteredByOtherEl);
 applyStaticI18n();
 updateLangButtons();
-// Reveal the "back to admin" link only when arriving from the admin app.
+// When arriving from the admin app, swap the "Today" link for a "back to admin"
+// link rather than showing both (keeps the header from overflowing).
 if (new URLSearchParams(location.search).get("from") === "admin") {
   var adminLink = document.getElementById("admin-link");
+  var todayLink = document.getElementById("today-link");
   if (adminLink) adminLink.classList.remove("hidden");
+  if (todayLink) todayLink.classList.add("hidden");
 }
 renderShiftToggle();
 loadCachedConfig(); // seed slots/kitchen %/showSplit before the first dropdown is built
