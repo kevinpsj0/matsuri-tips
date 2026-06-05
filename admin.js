@@ -11,6 +11,7 @@ const fmt = (n) => money.format(n || 0);
 let sessionPin = "";
 let allRows = [];
 let staffList = []; // [{ name, active }] from handleFetchData
+let payoutList = []; // [{ date, name, amount }] payout log from handleFetchData
 let pendingRequests = [];
 let requestsLoadError = "";
 // Single mutex shared by every mutating admin action (resolveRequest,
@@ -118,7 +119,7 @@ async function tryPin(pin, silent) {
   if (data && data.ok) {
     sessionPin = pin;
     localStorage.setItem(PIN_KEY, pin);
-    allRows = data.rows || []; staffList = data.staff || [];
+    allRows = data.rows || []; staffList = data.staff || []; payoutList = data.payouts || [];
     mirrorConfig(data.config);
     gateEl.classList.add("hidden");
     appEl.classList.remove("hidden");
@@ -254,7 +255,7 @@ async function refresh() {
   view.innerHTML = `<div class="loading">${escapeHtml(t("loading"))}</div>`;
   try {
     const data = await fetchData(sessionPin);
-    if (data && data.ok) { allRows = data.rows || []; staffList = data.staff || []; mirrorConfig(data.config); render(); return; }
+    if (data && data.ok) { allRows = data.rows || []; staffList = data.staff || []; payoutList = data.payouts || []; mirrorConfig(data.config); render(); return; }
     if (data && data.error) { signOut(); return; }
   } catch (e) { /* keep existing data */ }
   render();
@@ -277,8 +278,9 @@ function signOut() {
 
 // ---- rendering ----
 function render() {
-  // Calendar and Settings manage no date range, so the period selector is hidden.
-  const noRange = activeTab === "calendar" || activeTab === "settings";
+  // Calendar/Settings self-navigate and Payouts is an all-time balance, so the
+  // period selector is hidden for them.
+  const noRange = activeTab === "calendar" || activeTab === "settings" || activeTab === "payouts";
   document.getElementById("periods").classList.toggle("hidden", noRange);
   document.getElementById("custom-range").classList.toggle("show", !noRange && period === "custom");
   document.getElementById("custom-range").classList.toggle("hidden", noRange);
@@ -290,6 +292,7 @@ function render() {
 
   const view = document.getElementById("view");
   if (activeTab === "settings") { if (!slotsEdit) slotsEdit = slotsWorkingCopy(); view.innerHTML = renderSettings(); return; }
+  if (activeTab === "payouts") { view.innerHTML = renderPayouts(); return; }
   if (activeTab === "calendar") { view.innerHTML = calDay ? renderCalDayDetail(calDay) : renderCalendar(); return; }
 
   const { start, end } = currentRange();
@@ -676,6 +679,103 @@ function renderPeople(rows) {
 
 function emptyState(msg) { return `<div class="empty-state">${escapeHtml(msg)}</div>`; }
 
+// ---- payouts ----
+// Owed = all-time earned (Server/Trainee/Chef, not the Kitchen fund) minus
+// all-time paid out. Integer cents avoid float drift; mirrors the backend.
+function computeOwed() {
+  const earned = {};
+  for (const r of allRows) {
+    if (r.role !== "Server" && r.role !== "Trainee" && r.role !== "Chef") continue;
+    const name = (r.recipient || "").trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (!earned[key]) earned[key] = { display: name, cents: 0 };
+    earned[key].cents += Math.round((r.amount || 0) * 100);
+  }
+  const paid = {};
+  for (const p of payoutList) {
+    const key = (p.name || "").trim().toLowerCase();
+    if (!key) continue;
+    paid[key] = (paid[key] || 0) + Math.round((p.amount || 0) * 100);
+  }
+  return [...new Set([...Object.keys(earned), ...Object.keys(paid)])].map((k) => ({
+    name: earned[k] ? earned[k].display : k,
+    owed: ((earned[k] ? earned[k].cents : 0) - (paid[k] || 0)) / 100,
+  }));
+}
+
+// People still owed money (a half-cent epsilon guards the post-division float).
+function owedPositive() { return computeOwed().filter((p) => p.owed > 0.005); }
+
+function renderPayouts() {
+  const owedList = owedPositive().sort((a, b) => b.owed - a.owed);
+  const totalOwed = owedList.reduce((s, p) => s + p.owed, 0);
+  const history = payoutList.slice().sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 20);
+
+  let html = `<div class="panel"><div class="payout-sum">
+      <div><div class="k">${escapeHtml(t("payout_total_owed"))}</div><div class="payout-total">${fmt(totalOwed)}</div></div>
+      <button type="button" id="pay-all-btn" class="btn-primary"${owedList.length ? "" : " disabled"}>${escapeHtml(t("pay_everyone"))}</button>
+    </div></div>`;
+
+  if (owedList.length) {
+    const rows = owedList.map((p) => `<div class="payout-row">
+        <span class="payout-name">${escapeHtml(p.name)}</span>
+        <span class="payout-owed">${fmt(p.owed)}</span>
+        <button type="button" class="staff-btn payout-btn" data-payout-name="${escapeHtml(p.name)}">${escapeHtml(t("pay_out"))}</button>
+      </div>`).join("");
+    html += `<div class="panel"><h2>${escapeHtml(t("payouts_owed_h"))}</h2>${rows}</div>`;
+  } else {
+    html += emptyState(t("payouts_all_paid"));
+  }
+
+  if (history.length) {
+    const rows = history.map((p) => `<div class="payout-hist-row"><span>${escapeHtml(p.date)} · ${escapeHtml(p.name)}</span><span class="payout-hist-amt">${fmt(p.amount)}</span></div>`).join("");
+    html += `<div class="panel"><h2>${escapeHtml(t("payouts_history"))}</h2>${rows}</div>`;
+  }
+  return html;
+}
+
+async function payOut(name) {
+  if (actionBusy) return;
+  const entry = computeOwed().find((p) => p.name.toLowerCase() === name.toLowerCase());
+  if (!entry || entry.owed <= 0.005) return;
+  if (!window.confirm(t("payout_confirm", { name: name, amount: fmt(entry.owed) }))) return;
+  actionBusy = true;
+  try {
+    const res = await fetch(ENDPOINT_URL, {
+      method: "POST", mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "recordPayout", pin: sessionPin, name: name }),
+    });
+    const data = await res.json();
+    if (!data || !data.ok) { window.alert((data && data.error) || t("could_not_update")); return; }
+    await refresh();
+  } catch (e) {
+    window.alert(t("network_retry"));
+  } finally { actionBusy = false; }
+}
+
+async function payAll() {
+  if (actionBusy) return;
+  const owedList = owedPositive();
+  if (!owedList.length) return;
+  const total = owedList.reduce((s, p) => s + p.owed, 0);
+  if (!window.confirm(t("payout_all_confirm", { total: fmt(total), n: owedList.length }))) return;
+  actionBusy = true;
+  try {
+    const res = await fetch(ENDPOINT_URL, {
+      method: "POST", mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "recordPayoutAll", pin: sessionPin }),
+    });
+    const data = await res.json();
+    if (!data || !data.ok) { window.alert((data && data.error) || t("could_not_update")); return; }
+    await refresh();
+  } catch (e) {
+    window.alert(t("network_retry"));
+  } finally { actionBusy = false; }
+}
+
 function renderSettings() {
   const lang = getLang();
   const langBtn = (code, label) => `<button type="button" data-set-lang="${code}"${lang === code ? ' class="active"' : ""}>${escapeHtml(label)}</button>`;
@@ -887,6 +987,9 @@ function wireEvents() {
       setStaffTrainee(tpBtn.dataset.staffName, Number(tpBtn.dataset.traineePct));
       return;
     }
+    if (e.target.closest("#pay-all-btn")) { payAll(); return; }
+    const payBtn = e.target.closest("[data-payout-name]");
+    if (payBtn && payBtn.dataset.payoutName) { payOut(payBtn.dataset.payoutName); return; }
     const staffBtn = e.target.closest("[data-staff-action]");
     if (staffBtn && staffBtn.dataset.staffName) {
       const action = staffBtn.dataset.staffAction;

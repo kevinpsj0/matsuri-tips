@@ -111,6 +111,7 @@ var I18N = {
     tab_shifts: "Shifts",
     tab_people: "People",
     tab_requests: "Requests",
+    tab_payouts: "Payouts",
     tab_settings: "Settings",
     could_not_connect: "Could not connect. Check your internet and try again.",
     wrong_pin: "Wrong PIN.",
@@ -165,6 +166,16 @@ var I18N = {
     add_staff_start: "Add staff above to start tracking earnings.",
     trainee_tag: "{pct}% trainee",
     confirm_inactivate: "Inactivate {name}? They will be hidden from the entry form and leaderboard.",
+
+    // payouts
+    payout_total_owed: "Total owed",
+    pay_everyone: "Pay everyone",
+    pay_out: "Pay out",
+    payouts_owed_h: "Owed",
+    payouts_all_paid: "Everyone is paid up.",
+    payouts_history: "Recent payouts",
+    payout_confirm: "Pay {name} {amount} now? This records it and resets their balance.",
+    payout_all_confirm: "Pay everyone their balance now? {total} across {n} people.",
 
     // settings
     settings_sec_general: "General",
@@ -288,6 +299,7 @@ var I18N = {
     tab_shifts: "시프트",
     tab_people: "직원",
     tab_requests: "요청",
+    tab_payouts: "정산",
     tab_settings: "설정",
     could_not_connect: "연결할 수 없습니다. 인터넷을 확인하고 다시 시도하세요.",
     wrong_pin: "잘못된 PIN입니다.",
@@ -343,11 +355,21 @@ var I18N = {
     trainee_tag: "{pct}% 수습",
     confirm_inactivate: "{name}님을 비활성화할까요? 입력 양식과 순위에서 숨겨집니다.",
 
+    // payouts
+    payout_total_owed: "총 미지급",
+    pay_everyone: "전체 지급",
+    pay_out: "지급",
+    payouts_owed_h: "미지급",
+    payouts_all_paid: "모두 지급 완료되었습니다.",
+    payouts_history: "최근 지급 내역",
+    payout_confirm: "{name}님에게 {amount}을(를) 지급할까요? 기록되고 잔액이 0으로 초기화됩니다.",
+    payout_all_confirm: "전체에게 잔액을 지급할까요? {n}명에게 총 {total}.",
+
     // settings
     settings_sec_general: "일반",
     settings_sec_payrules: "정산 규칙",
-    settings_sec_data: "스프레드시트",
-    settings_open_sheet: "스프레드시트 열기",
+    settings_sec_data: "시트",
+    settings_open_sheet: "시트 열기",
     settings_language: "언어",
     settings_show_split: "입력 후 팁분배 결과 표시",
     saving: "저장 중...",

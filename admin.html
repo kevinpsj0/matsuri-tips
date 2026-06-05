@@ -258,6 +258,20 @@
   .empty-state { text-align: center; color: var(--muted); padding: 2rem 1rem; }
   .loading { text-align: center; color: var(--muted); padding: 2rem; }
 
+  /* Payouts */
+  .payout-sum { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .payout-sum .k { font-size: .76rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .payout-total { font-size: 1.5rem; font-weight: 700; color: var(--ink); }
+  .payout-row { display: flex; align-items: center; gap: .6rem; padding: .6rem 0; border-bottom: 1px solid var(--line); }
+  .payout-row:last-child { border-bottom: 0; }
+  .payout-name { font-weight: 600; flex: 1; min-width: 0; word-break: break-word; }
+  .payout-owed { font-weight: 700; color: var(--indigo); font-variant-numeric: tabular-nums; }
+  .payout-btn { flex: none; }
+  .payout-hist-row { display: flex; justify-content: space-between; gap: .5rem; padding: .4rem 0; border-bottom: 1px solid var(--line); font-size: .88rem; }
+  .payout-hist-row:last-child { border-bottom: 0; }
+  .payout-hist-row span:first-child { color: var(--muted); }
+  .payout-hist-amt { font-variant-numeric: tabular-nums; color: var(--ink); }
+
   /* Settings */
   .set-row { padding: .4rem 0 1rem; border-bottom: 1px solid var(--line); margin-bottom: 1rem; }
   .set-row:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
@@ -350,6 +364,7 @@
       <button data-tab="shifts" data-i18n="tab_shifts">Shifts</button>
       <button data-tab="people" data-i18n="tab_people">People</button>
       <button data-tab="requests"><span data-i18n="tab_requests">Requests</span><span id="req-badge" class="badge"></span></button>
+      <button data-tab="payouts" data-i18n="tab_payouts">Payouts</button>
     </div>
 
     <div id="view"></div>

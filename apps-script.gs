@@ -410,6 +410,141 @@ function applyRosterTrainees(servers) {
   });
 }
 
+// ---- payouts ----
+// Tips accrue per person in the ledger; the owner pays them out periodically.
+// Owed = all-time earned (Server/Trainee/Chef, never the Kitchen fund) minus
+// all-time paid. Payouts are an append-only log in a "Payouts" sheet.
+function getOrCreatePayoutsSheet(ss) {
+  let sheet = ss.getSheetByName("Payouts");
+  if (!sheet) {
+    try {
+      sheet = ss.insertSheet("Payouts", ss.getNumSheets());
+      sheet.getRange(1, 1, 1, 3).setValues([["Date", "Name", "Amount"]]).setFontWeight("bold");
+      sheet.setFrozenRows(1);
+      return sheet;
+    } catch (e) {
+      // Two first-writes can race to create the tab; re-fetch if insert lost.
+      sheet = ss.getSheetByName("Payouts");
+      if (!sheet) throw e;
+    }
+  }
+  return sheet;
+}
+
+function readPayouts(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Payouts");
+  if (!sheet) return [];
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const tz = ss.getSpreadsheetTimeZone();
+  const vals = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  const out = [];
+  for (const r of vals) {
+    const name = String(r[1] || "").trim();
+    if (!name) continue;
+    const date = (r[0] instanceof Date) ? Utilities.formatDate(r[0], tz, "yyyy-MM-dd") : String(r[0] || "");
+    out.push({ date: date, name: name, amount: Number(r[2]) || 0 });
+  }
+  return out;
+}
+
+// Map of lowercased name -> { display, owedCents }. Integer cents avoid float
+// drift. Owed is all-time across the whole ledger (no start date), keyed by
+// case-insensitive name (no stable staff id). On first use the owner settles
+// any pre-tracking history with one "Pay everyone", which baselines balances.
+function computeOwedCents(ss) {
+  const ledger = ss.getSheets()[0];
+  const earned = {};
+  const lastRow = ledger.getLastRow();
+  if (lastRow >= 2) {
+    const vals = ledger.getRange(2, 1, lastRow - 1, NUM_COLS).getValues();
+    for (const r of vals) {
+      const role = String(r[COL.ROLE - 1] || "");
+      if (role !== "Server" && role !== "Trainee" && role !== "Chef") continue; // Kitchen fund excluded
+      const name = String(r[COL.RECIPIENT - 1] || "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (!earned[key]) earned[key] = { display: name, cents: 0 };
+      earned[key].cents += Math.round((Number(r[COL.AMOUNT - 1]) || 0) * 100);
+    }
+  }
+  const paid = {};
+  readPayouts(ss).forEach(function (p) {
+    const key = p.name.toLowerCase();
+    paid[key] = (paid[key] || 0) + Math.round((Number(p.amount) || 0) * 100);
+  });
+  const out = {};
+  new Set(Object.keys(earned).concat(Object.keys(paid))).forEach(function (k) {
+    out[k] = { display: earned[k] ? earned[k].display : k, owedCents: (earned[k] ? earned[k].cents : 0) - (paid[k] || 0) };
+  });
+  return out;
+}
+
+// Admin-only: record a payout of a person's full current balance.
+function handleRecordPayout(payload) {
+  const storedPin = PropertiesService.getScriptProperties().getProperty("ADMIN_PIN");
+  if (!storedPin) return jsonResponse({ ok: false, error: "Admin access is not configured yet." });
+  if (typeof payload.pin !== "string" || payload.pin !== storedPin) {
+    Utilities.sleep(1000);
+    return jsonResponse({ ok: false, error: "Wrong PIN." });
+  }
+  const name = typeof payload.name === "string" ? payload.name.trim() : "";
+  if (!name) return jsonResponse({ ok: false, error: "Name is required" });
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(8000)) return jsonResponse({ ok: false, retryable: true, error: "Busy, try again." });
+  try {
+    const entry = computeOwedCents(ss)[name.toLowerCase()];
+    const cents = entry ? entry.owedCents : 0;
+    if (cents <= 0) return jsonResponse({ ok: false, error: "Nothing to pay out for " + name + "." });
+    const tz = ss.getSpreadsheetTimeZone();
+    const today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+    getOrCreatePayoutsSheet(ss).appendRow([today, entry.display, cents / 100]);
+    return jsonResponse({ ok: true, name: entry.display, amount: cents / 100 });
+  } catch (err) {
+    return jsonResponse({ ok: false, retryable: true, error: String(err && err.message || err) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Admin-only: pay out everyone with a positive balance, in one write.
+function handleRecordPayoutAll(payload) {
+  const storedPin = PropertiesService.getScriptProperties().getProperty("ADMIN_PIN");
+  if (!storedPin) return jsonResponse({ ok: false, error: "Admin access is not configured yet." });
+  if (typeof payload.pin !== "string" || payload.pin !== storedPin) {
+    Utilities.sleep(1000);
+    return jsonResponse({ ok: false, error: "Wrong PIN." });
+  }
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return jsonResponse({ ok: false, retryable: true, error: "Busy, try again." });
+  try {
+    const owed = computeOwedCents(ss);
+    const tz = ss.getSpreadsheetTimeZone();
+    const today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+    const rowsToAppend = [], paid = [];
+    for (const k in owed) {
+      if (owed[k].owedCents > 0) {
+        const amount = owed[k].owedCents / 100;
+        rowsToAppend.push([today, owed[k].display, amount]);
+        paid.push({ name: owed[k].display, amount: amount });
+      }
+    }
+    if (rowsToAppend.length) {
+      const sheet = getOrCreatePayoutsSheet(ss);
+      sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, 3).setValues(rowsToAppend);
+    }
+    return jsonResponse({ ok: true, paid: paid });
+  } catch (err) {
+    return jsonResponse({ ok: false, retryable: true, error: String(err && err.message || err) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // Read path for the admin dashboard. PIN is checked against the ADMIN_PIN
 // Script Property (Project Settings -> Script Properties), never stored in code.
 function handleFetchData(payload) {
@@ -427,7 +562,7 @@ function handleFetchData(payload) {
   const lastRow = sheet.getLastRow();
   const staffSheet = ss.getSheetByName("Staff");
   const staff = staffSheet ? readStaffRows(staffSheet).map(function (s) { return { name: s.name, active: s.active, role: s.role, traineePct: s.traineePct }; }) : [];
-  if (lastRow < 2) return jsonResponse({ ok: true, rows: [], staff: staff, config: configObject() });
+  if (lastRow < 2) return jsonResponse({ ok: true, rows: [], staff: staff, config: configObject(), payouts: readPayouts(ss) });
 
   const tz = ss.getSpreadsheetTimeZone();
   const asDateStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "yyyy-MM-dd") : String(v || "");
@@ -451,7 +586,7 @@ function handleFetchData(payload) {
     totalTips: Number(r[COL.TOTAL_TIPS - 1]) || 0,
     submissionId: String(r[COL.SUBMISSION_ID - 1] || ""),
   }));
-  return jsonResponse({ ok: true, rows: rows, staff: staff, config: configObject() });
+  return jsonResponse({ ok: true, rows: rows, staff: staff, config: configObject(), payouts: readPayouts(ss) });
 }
 
 // Read path for the staff verification page (today.html). Returns just
@@ -1085,6 +1220,12 @@ function doPost(e) {
   }
   if (payload && payload.action === "setStaffTrainee") {
     return handleSetStaffTrainee(payload);
+  }
+  if (payload && payload.action === "recordPayout") {
+    return handleRecordPayout(payload);
+  }
+  if (payload && payload.action === "recordPayoutAll") {
+    return handleRecordPayoutAll(payload);
   }
   if (payload && payload.action === "setSlots") {
     return handleSetSlots(payload);
