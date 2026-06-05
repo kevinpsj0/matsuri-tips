@@ -125,6 +125,12 @@
   .cards-3 { grid-template-columns: repeat(3, 1fr); margin-top: .6rem; }
   .cards-3 .card { padding: .7rem .55rem; }
   .cards-3 .card .v { font-size: 1.05rem; }
+  .sum-payout { display: flex; gap: 1rem; }
+  .sum-payout-item { flex: 1; min-width: 0; text-align: left; background: transparent; border: 0; padding: 0; }
+  button.sum-payout-item { cursor: pointer; }
+  .sum-payout .k { font-size: .76rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .sum-payout .v { font-size: 1.25rem; font-weight: 700; color: var(--indigo); margin-top: .15rem; }
+  .sum-payout .v-sub { font-size: 1rem; font-weight: 600; color: var(--ink); margin-top: .25rem; }
   .card {
     background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .85rem .9rem;
   }

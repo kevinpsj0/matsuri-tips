@@ -335,7 +335,34 @@ function renderSummary(rows, start, end) {
   } else {
     chart = `<div class="panel"><h2>${escapeHtml(t("panel_daily_total"))}</h2>${multiDayBarsHtml(rows)}</div>`;
   }
-  return cards + chart;
+  return cards + payoutStatusHtml() + chart;
+}
+
+// At-a-glance payout status (current outstanding + when last paid), independent
+// of the period filter; tapping the owed amount jumps to the Payouts tab.
+function payoutStatusHtml() {
+  const owedNow = owedPositive().reduce((s, p) => s + p.owed, 0);
+  const dates = payoutList.map((p) => p.date).filter(Boolean).sort();
+  const last = dates.length ? dates[dates.length - 1] : null;
+  let lastText;
+  if (!last) {
+    lastText = t("summary_no_payouts");
+  } else {
+    // Build dates from parts so the ISO string isn't parsed as UTC and shifted.
+    const lp = isoParts(last), tp = isoParts(todayISO());
+    const dateStr = new Date(lp.y, lp.m - 1, lp.d).toLocaleDateString(locale(), { month: "short", day: "numeric" });
+    const days = Math.round((new Date(tp.y, tp.m - 1, tp.d) - new Date(lp.y, lp.m - 1, lp.d)) / 86400000);
+    const ago = days <= 0 ? t("ago_today") : t("ago_days", { n: days });
+    lastText = `${dateStr} · ${ago}`;
+  }
+  return `<div class="panel"><div class="sum-payout">
+      <button type="button" class="sum-payout-item" data-goto="payouts">
+        <div class="k">${escapeHtml(t("summary_owed_now"))}</div><div class="v">${fmt(owedNow)}</div>
+      </button>
+      <div class="sum-payout-item">
+        <div class="k">${escapeHtml(t("summary_last_payout"))}</div><div class="v-sub">${escapeHtml(lastText)}</div>
+      </div>
+    </div></div>`;
 }
 
 // Multi-day summary: one horizontal bar per day (busiest day = full width),
@@ -984,6 +1011,8 @@ function wireEvents() {
       setStaffTrainee(tpBtn.dataset.staffName, Number(tpBtn.dataset.traineePct));
       return;
     }
+    const gotoBtn = e.target.closest("[data-goto]");
+    if (gotoBtn) { activeTab = gotoBtn.dataset.goto; calDay = null; render(); return; }
     if (e.target.closest("#pay-all-btn")) { payAll(); return; }
     const payBtn = e.target.closest("[data-payout-name]");
     if (payBtn && payBtn.dataset.payoutName) { payOut(payBtn.dataset.payoutName); return; }

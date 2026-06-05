@@ -168,6 +168,11 @@ var I18N = {
     confirm_inactivate: "Inactivate {name}? They will be hidden from the entry form and leaderboard.",
 
     // payouts
+    summary_owed_now: "Owed to staff",
+    summary_last_payout: "Last payout",
+    summary_no_payouts: "None yet",
+    ago_today: "today",
+    ago_days: "{n} days ago",
     payout_total_owed: "Total owed",
     pay_everyone: "Pay everyone",
     pay_out: "Pay out",
@@ -356,6 +361,11 @@ var I18N = {
     confirm_inactivate: "{name}님을 비활성화할까요? 입력 양식과 순위에서 숨겨집니다.",
 
     // payouts
+    summary_owed_now: "직원 미지급",
+    summary_last_payout: "최근 지급",
+    summary_no_payouts: "아직 없음",
+    ago_today: "오늘",
+    ago_days: "{n}일 전",
     payout_total_owed: "총 미지급",
     pay_everyone: "전체 지급",
     pay_out: "지급",
