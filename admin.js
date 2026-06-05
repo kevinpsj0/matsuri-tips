@@ -660,45 +660,46 @@ function renderStaffManager() {
   </div>`;
 }
 
+// One person's shifts for the drill-down, newest first.
+function shiftRowsHtml(rows) {
+  return rows.slice().sort(function (a, b) { return String(b.date || "").localeCompare(String(a.date || "")); })
+    .map(function (r) {
+      const sh = localizeShiftName(r.shift);
+      const h = r.hours ? r.hours.toFixed(1) + "h" : "—";
+      return `<div class="lb-detail-row"><span>${escapeHtml(r.date)} · ${escapeHtml(sh)}</span><span>${h} · ${fmt(r.amount)}</span></div>`;
+    }).join("");
+}
+
 function renderPeople(rows) {
   const manager = renderStaffManager();
-  const activeSet = new Set(staffList.filter((s) => s.active).map((s) => s.name.toLowerCase()));
-  const people = rows.filter((r) =>
-    (r.role === "Server" || r.role === "Trainee") && // servers only; chefs excluded
-    activeSet.has((r.recipient || "").trim().toLowerCase())
-  );
-  if (!people.length) {
-    return manager + emptyState(activeSet.size ? t("no_earnings_active") : t("add_staff_start"));
+  const activeKeys = new Set(staffList.filter(function (s) { return s.active; }).map(function (s) { return s.name.toLowerCase(); }));
+  const data = aggregatePeople(rows, activeKeys);
+  if (!data.active.length && !data.former.length) {
+    return manager + emptyState(activeKeys.size ? t("no_earnings_active") : t("add_staff_start"));
   }
-  const agg = {}; // key -> { total, hours, shifts:Set, names: {display: count}, traineePct }
-  for (const r of people) {
-    const name = (r.recipient || "").trim();
-    const key = name.toLowerCase();
-    if (!key) continue;
-    if (!agg[key]) agg[key] = { total: 0, hours: 0, shifts: new Set(), names: {}, traineePct: null };
-    agg[key].total += r.amount;
-    agg[key].hours += r.hours || 0;
-    if (r.submissionId) agg[key].shifts.add(r.submissionId);
-    agg[key].names[name] = (agg[key].names[name] || 0) + 1;
-    if (r.role === "Trainee" && r.traineePct != null) agg[key].traineePct = r.traineePct;
-  }
-  const list = Object.values(agg).map((a) => {
-    const display = Object.keys(a.names).sort((x, y) => a.names[y] - a.names[x])[0];
-    return { display, total: a.total, hours: a.hours, shifts: a.shifts.size, traineePct: a.traineePct };
-  }).sort((a, b) => b.total - a.total);
+  const owedMap = {};
+  owedPositive().forEach(function (p) { owedMap[p.name.toLowerCase()] = p.owed; });
 
-  const max = Math.max(1, ...list.map((p) => p.total));
-  const body = list.map((p) => {
-    const w = p.total > 0 ? Math.max(2, p.total / max * 100) : 0;
+  const rowHtml = function (p) {
+    const w = p.total > 0 ? Math.max(2, p.total / data.max * 100) : 0;
     const tag = p.traineePct != null ? `<span class="lb-tag"> · ${escapeHtml(t("trainee_tag", { pct: p.traineePct }))}</span>` : "";
-    const rate = p.hours > 0 ? fmt(p.total / p.hours) + "/h" : "—";
-    return `<div class="lb-row">
-      <div class="lb-head"><span class="lb-name">${escapeHtml(p.display)}${tag}</span><span class="lb-earned">${fmt(p.total)}</span></div>
+    const owed = owedMap[p.key];
+    const owedBadge = owed > 0.005 ? `<button type="button" class="lb-owed" data-goto="payouts">${escapeHtml(t("owed_badge", { amount: fmt(owed) }))}</button>` : "";
+    const suffix = p.traineePct != null ? " " + escapeHtml(t("trainee_rate_suffix")) : "";
+    const rate = p.hours > 0 ? fmt(p.total / p.hours) + "/h" + suffix : "—";
+    return `<div class="lb-row" data-person="${escapeHtml(p.key)}">
+      <div class="lb-head"><span class="lb-name">${escapeHtml(p.display)}${tag}</span><span class="lb-right">${owedBadge}<span class="lb-earned">${fmt(p.total)}</span></span></div>
       <div class="lb-track">${w ? `<div class="lb-bar" style="width:${w.toFixed(1)}%"></div>` : ""}</div>
       <div class="lb-meta">${p.shifts} ${escapeHtml(shiftWord(p.shifts))} · ${p.hours.toFixed(1)}h · ${rate}</div>
+      <div class="lb-detail">${shiftRowsHtml(p.rows)}</div>
     </div>`;
-  }).join("");
-  return manager + `<div class="panel"><h2>${escapeHtml(t("earnings_by_person"))}</h2>${body}</div>`;
+  };
+
+  const activeHtml = data.active.map(rowHtml).join("");
+  const formerHtml = data.former.length
+    ? `<details class="lb-former"><summary>${escapeHtml(t("former_staff", { n: data.former.length }))}</summary>${data.former.map(rowHtml).join("")}</details>`
+    : "";
+  return manager + `<div class="panel"><h2>${escapeHtml(t("earnings_by_person"))}</h2>${activeHtml}${formerHtml}</div>`;
 }
 
 function emptyState(msg) { return `<div class="empty-state">${escapeHtml(msg)}</div>`; }
