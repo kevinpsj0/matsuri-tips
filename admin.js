@@ -1014,6 +1014,8 @@ function wireEvents() {
     }
     const gotoBtn = e.target.closest("[data-goto]");
     if (gotoBtn) { activeTab = gotoBtn.dataset.goto; calDay = null; render(); return; }
+    const lbRow = e.target.closest(".lb-row[data-person]");
+    if (lbRow) { lbRow.classList.toggle("open"); return; }
     if (e.target.closest("#pay-all-btn")) { payAll(); return; }
     const payBtn = e.target.closest("[data-payout-name]");
     if (payBtn && payBtn.dataset.payoutName) { payOut(payBtn.dataset.payoutName); return; }
