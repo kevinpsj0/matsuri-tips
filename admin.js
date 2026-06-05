@@ -46,7 +46,8 @@ function currentRange() {
   if (period === "today") return { start: today, end: today };
   if (period === "yesterday") { const y = addDays(today, -1); return { start: y, end: y }; }
   if (period === "last3") {
-    // The 3 most recent days the restaurant actually had shifts (skips closed days).
+    // Span from the 3rd-most-recent day-with-shifts to the most recent. Closed
+    // days in the span have no rows, so they don't affect the totals.
     const days = Array.from(new Set(allRows.map((r) => r.date).filter((d) => d && d <= today))).sort();
     if (!days.length) return { start: today, end: today };
     const last3 = days.slice(-3);
@@ -678,9 +679,15 @@ function emptyState(msg) { return `<div class="empty-state">${escapeHtml(msg)}</
 function renderSettings() {
   const lang = getLang();
   const langBtn = (code, label) => `<button type="button" data-set-lang="${code}"${lang === code ? ' class="active"' : ""}>${escapeHtml(label)}</button>`;
-  const head = `<div class="set-row">
-      <div class="set-label">${escapeHtml(t("settings_language"))}</div>
-      <div class="set-langs">${langBtn("en", "English")}${langBtn("ko", "한국어")}</div>
+
+  // General: device language + the global show-split toggle.
+  const general = `<div class="panel">
+    <h2>${escapeHtml(t("settings_sec_general"))}</h2>
+    <div class="set-row">
+      <div class="set-toggle-row">
+        <div class="set-label">${escapeHtml(t("settings_language"))}</div>
+        <div class="set-langs">${langBtn("en", "English")}${langBtn("ko", "한국어")}</div>
+      </div>
     </div>
     <div class="set-row">
       <div class="set-toggle-row">
@@ -688,43 +695,58 @@ function renderSettings() {
         <label class="set-switch"><input type="checkbox" id="set-show-split"${showSplitConfig ? " checked" : ""}><span class="set-slider"></span></label>
       </div>
       <div class="set-status" id="set-split-status"></div>
-    </div>`;
-  // Until the first config fetch lands, slotsConfig is null — show a loading line
-  // for the kitchen %/slot editor rather than empty editable fields a Save could push.
-  if (!slotsConfig) {
-    return `<div class="panel">${head}
-      <div class="set-row"><div class="set-label">${escapeHtml(t("settings_time_slots"))}</div><div class="set-status">${escapeHtml(t("loading"))}</div></div>
-    </div>`;
-  }
-  const slots = slotsEdit || { lunch: [], dinner: [] };
-  const slotRow = (shift, s, i, n) => `<div class="slot-row" data-shift="${shift}" data-i="${i}">
-      <input type="time" class="slot-in" value="${escapeHtml(s.timeIn || "")}" data-shift="${shift}" data-i="${i}" data-field="timeIn">
-      <span class="slot-dash">–</span>
-      <input type="time" class="slot-out" value="${escapeHtml(s.timeOut || "")}" data-shift="${shift}" data-i="${i}" data-field="timeOut">
-      <span class="slot-preview">${escapeHtml(slotLabel(s.timeIn, s.timeOut))}</span>
-      <button type="button" class="slot-remove" data-shift="${shift}" data-i="${i}"${n <= 1 ? " disabled" : ""}>×</button>
-    </div>`;
-  const group = (shift, title) => `<div class="slot-group">
-      <div class="slot-group-h">${escapeHtml(title)}</div>
-      ${(slots[shift] || []).map((s, i) => slotRow(shift, s, i, (slots[shift] || []).length)).join("")}
-      <button type="button" class="slot-add" data-shift="${shift}">${escapeHtml(t("slot_add"))}</button>
-    </div>`;
-  return `<div class="panel">${head}
-    <div class="set-row">
-      <div class="set-toggle-row">
-        <div class="set-label">${escapeHtml(t("settings_kitchen_pct"))}</div>
-        <input type="number" id="set-kitchen-pct" min="0" max="50" step="1" value="${escapeHtml(String(kitchenPctConfig))}" style="width:5rem">
-      </div>
-      <div class="set-status" id="set-kitchen-status"></div>
-    </div>
-    <div class="set-row">
-      <div class="set-label">${escapeHtml(t("settings_time_slots"))}</div>
-      ${group("lunch", t("lunch"))}
-      ${group("dinner", t("dinner"))}
-      <button type="button" id="set-slots-save" class="btn-primary" style="margin-top:.6rem">${escapeHtml(t("slot_save"))}</button>
-      <div class="set-status" id="set-slots-status"></div>
     </div>
   </div>`;
+
+  // Pay rules: kitchen cut + slot table (these change how money splits).
+  let payRules;
+  if (!slotsConfig) {
+    // Until the first config fetch lands, show a loading line rather than empty
+    // editable fields a Save could push.
+    payRules = `<div class="panel"><h2>${escapeHtml(t("settings_sec_payrules"))}</h2>
+      <div class="set-row"><div class="set-status">${escapeHtml(t("loading"))}</div></div></div>`;
+  } else {
+    const slots = slotsEdit || { lunch: [], dinner: [] };
+    const slotRow = (shift, s, i, n) => `<div class="slot-row" data-shift="${shift}" data-i="${i}">
+        <input type="time" class="slot-in" value="${escapeHtml(s.timeIn || "")}" data-shift="${shift}" data-i="${i}" data-field="timeIn">
+        <span class="slot-dash">–</span>
+        <input type="time" class="slot-out" value="${escapeHtml(s.timeOut || "")}" data-shift="${shift}" data-i="${i}" data-field="timeOut">
+        <button type="button" class="slot-remove" data-shift="${shift}" data-i="${i}"${n <= 1 ? " disabled" : ""} aria-label="Remove">×</button>
+        <span class="slot-preview">${escapeHtml(slotLabel(s.timeIn, s.timeOut))}</span>
+      </div>`;
+    const group = (shift, title) => `<div class="slot-group">
+        <div class="slot-group-h">${escapeHtml(title)}</div>
+        ${(slots[shift] || []).map((s, i) => slotRow(shift, s, i, (slots[shift] || []).length)).join("")}
+        <button type="button" class="slot-add" data-shift="${shift}">${escapeHtml(t("slot_add"))}</button>
+      </div>`;
+    payRules = `<div class="panel">
+      <h2>${escapeHtml(t("settings_sec_payrules"))}</h2>
+      <div class="set-row">
+        <div class="set-toggle-row">
+          <div class="set-label">${escapeHtml(t("settings_kitchen_pct"))}</div>
+          <input type="number" class="set-num" id="set-kitchen-pct" min="0" max="50" step="1" value="${escapeHtml(String(kitchenPctConfig))}">
+        </div>
+        <div class="set-status" id="set-kitchen-status"></div>
+      </div>
+      <div class="set-row">
+        <div class="set-label">${escapeHtml(t("settings_time_slots"))}</div>
+        ${group("lunch", t("lunch"))}
+        ${group("dinner", t("dinner"))}
+        <button type="button" id="set-slots-save" class="btn-primary" style="margin-top:.6rem">${escapeHtml(t("slot_save"))}</button>
+        <div class="set-status" id="set-slots-status"></div>
+      </div>
+    </div>`;
+  }
+
+  // Data: link out to the raw spreadsheet.
+  const data = `<div class="panel">
+    <h2>${escapeHtml(t("settings_sec_data"))}</h2>
+    <div class="set-row">
+      <a class="set-link" href="https://docs.google.com/spreadsheets/d/1NbKaxie29WhzLnxkhVFKAA50EowPRLTsbahsYw3PPZI/edit" target="_blank" rel="noopener">${escapeHtml(t("settings_open_sheet"))} &rarr;</a>
+    </div>
+  </div>`;
+
+  return general + payRules + data;
 }
 
 function slotsWorkingCopy() {

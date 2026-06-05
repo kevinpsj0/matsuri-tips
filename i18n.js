@@ -167,6 +167,10 @@ var I18N = {
     confirm_inactivate: "Inactivate {name}? They will be hidden from the entry form and leaderboard.",
 
     // settings
+    settings_sec_general: "General",
+    settings_sec_payrules: "Pay rules",
+    settings_sec_data: "Spreadsheet",
+    settings_open_sheet: "Open spreadsheet",
     settings_language: "Language",
     settings_show_split: "Show tip split after submission",
     saving: "Saving...",
@@ -272,7 +276,7 @@ var I18N = {
     sign_out: "로그아웃",
     period_today: "오늘",
     period_yesterday: "어제",
-    period_last3: "최근 영업 3일",
+    period_last3: "지난 3일",
     period_week: "이번 주",
     period_month: "이번 달",
     period_custom: "사용자 지정",
@@ -308,7 +312,7 @@ var I18N = {
     card_distinct_staff: "직원 수",
     panel_day_shifts: "오늘 시프트",
     panel_daily_total: "일별 총 팁",
-    chart_aria: "일별 총 팁 막대 그래프",
+    chart_aria: "일별 총 팁 그래프",
     no_data: "데이터 없음.",
     shift_n: "시프트 {n}",
     prev_month: "이전 달",
@@ -340,6 +344,10 @@ var I18N = {
     confirm_inactivate: "{name}님을 비활성화할까요? 입력 양식과 순위에서 숨겨집니다.",
 
     // settings
+    settings_sec_general: "일반",
+    settings_sec_payrules: "정산 규칙",
+    settings_sec_data: "스프레드시트",
+    settings_open_sheet: "스프레드시트 열기",
     settings_language: "언어",
     settings_show_split: "입력 후 팁분배 결과 표시",
     saving: "저장 중...",
