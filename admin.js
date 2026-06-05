@@ -285,6 +285,7 @@ function render() {
 
   document.querySelectorAll("#periods button").forEach((b) => b.classList.toggle("active", b.dataset.period === period));
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === activeTab));
+  document.getElementById("settings-btn").classList.toggle("active", activeTab === "settings"); // Settings lives in the header gear, not the tabs
 
   const view = document.getElementById("view");
   if (activeTab === "settings") { if (!slotsEdit) slotsEdit = slotsWorkingCopy(); view.innerHTML = renderSettings(); return; }
@@ -811,6 +812,7 @@ function wireEvents() {
 
   document.getElementById("refresh-btn").addEventListener("click", refresh);
   document.getElementById("signout-btn").addEventListener("click", signOut);
+  document.getElementById("settings-btn").addEventListener("click", () => { activeTab = "settings"; calDay = null; render(); });
 
   document.getElementById("periods").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-period]");
