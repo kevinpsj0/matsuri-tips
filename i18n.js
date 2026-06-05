@@ -171,6 +171,14 @@ var I18N = {
     saving: "Saving...",
     saved: "Saved",
     could_not_save_setting: "Could not save setting. Try again.",
+    settings_kitchen_pct: "Kitchen cut (%)",
+    settings_time_slots: "Time slots",
+    slot_add: "+ Add slot",
+    slot_save: "Save slots",
+    slot_save_fail: "Couldn't save. Try again.",
+    slots_changed_refresh: "The time slots changed. Tap Refresh and pick again.",
+    slot_retimed_hint: "A slot was changed; re-pick the time.",
+    offline_slot_dropped: "An entry saved offline couldn't be sent because the time slots changed. Please re-enter it.",
   },
 
   ko: {
@@ -335,6 +343,14 @@ var I18N = {
     saving: "저장 중...",
     saved: "저장됨",
     could_not_save_setting: "설정을 저장하지 못했습니다. 다시 시도하세요.",
+    settings_kitchen_pct: "주방 몫 (%)",
+    settings_time_slots: "시간대",
+    slot_add: "+ 시간대 추가",
+    slot_save: "시간대 저장",
+    slot_save_fail: "저장하지 못했습니다. 다시 시도하세요.",
+    slots_changed_refresh: "시간대가 변경되었습니다. 새로고침 후 다시 선택하세요.",
+    slot_retimed_hint: "시간대가 변경되었습니다. 시간을 다시 선택하세요.",
+    offline_slot_dropped: "오프라인으로 저장된 입력이 시간대 변경으로 전송되지 못했습니다. 다시 입력해 주세요.",
   },
 };
 

@@ -46,7 +46,11 @@
     border: 1px solid rgba(244,211,137,0.25); border-radius: 16px; padding: 1.75rem 1.5rem;
     text-align: center; color: #fff; backdrop-filter: blur(4px);
   }
-  .gate-card img { width: 76px; height: 76px; display: block; margin: 0 auto .75rem; border-radius: 17px; }
+  .gate-card img {
+    width: 76px; height: 76px; display: block; margin: 0 auto .75rem;
+    border-radius: 18px; object-fit: cover; background: var(--bg);
+    box-shadow: 0 8px 18px rgba(0,0,0,0.25);
+  }
   .gate-card h1 { font-size: 1.15rem; margin: 0 0 .25rem; font-weight: 600; letter-spacing: .01em; }
   .gate-card p { margin: 0 0 1.25rem; color: #F3E1CF; font-size: .9rem; }
   .gate-card input {
@@ -72,7 +76,11 @@
     border-radius: 0 0 16px 16px;
   }
   header.bar .wrap { display: flex; align-items: center; gap: .6rem; padding-bottom: 0; }
-  header.bar img { width: 30px; height: 30px; border-radius: 7px; flex: none; }
+  header.bar img {
+    width: 32px; height: 32px; border-radius: 8px; flex: none;
+    object-fit: cover; background: var(--bg);
+    box-shadow: 0 1px 5px rgba(42,35,32,0.22);
+  }
   header.bar h1 { font-size: 1.1rem; margin: 0; font-weight: 600; flex: 1; }
   .iconbtn {
     background: rgba(255,255,255,0.12); border: 0; color: #fff; border-radius: 8px;
@@ -252,6 +260,17 @@
   .set-switch input:checked + .set-slider::before { transform: translateX(1.25rem); }
   .set-status { font-size: .82rem; color: var(--muted); margin-top: .5rem; min-height: 1em; }
 
+  .slot-group { margin: .5rem 0; }
+  .slot-group-h { font-weight: 600; font-size: .85rem; margin: .5rem 0 .3rem; }
+  .slot-row { display: flex; align-items: center; gap: .4rem; margin-bottom: .35rem; }
+  .slot-row input[type=time] { flex: 0 0 auto; padding: .35rem; border: 1px solid #ccc; border-radius: 6px; font: inherit; }
+  .slot-dash { color: var(--muted); }
+  .slot-preview { color: var(--muted); font-size: .82rem; flex: 1; }
+  .slot-remove { border: 0; background: transparent; color: #b00; font-size: 1.15rem; line-height: 1; cursor: pointer; padding: 0 .35rem; }
+  .slot-remove:disabled { opacity: .35; cursor: default; }
+  .slot-add { border: 1px dashed #999; background: #fff; padding: .35rem .6rem; border-radius: 6px; cursor: pointer; font-size: .82rem; }
+  #set-kitchen-pct { padding: .35rem; border: 1px solid #ccc; border-radius: 6px; font: inherit; }
+
   .hidden { display: none !important; }
 </style>
 </head>
@@ -259,7 +278,7 @@
 
 <div id="gate">
   <div class="gate-card">
-    <img src="icons/icon-admin.svg" alt="">
+    <img src="icons/icon.svg" alt="">
     <h1 data-i18n="gate_title">Matsuri Tips Admin</h1>
     <p id="gate-checking" class="gate-checking hidden" data-i18n="gate_checking">Checking saved PIN...</p>
     <div id="gate-form" class="hidden">
@@ -275,7 +294,7 @@
 <div id="app" class="hidden">
   <header class="bar">
     <div class="wrap">
-      <img src="icons/icon-admin.svg" alt="">
+      <img src="icons/icon.svg" alt="">
       <h1 data-i18n="admin_title">Tips Admin</h1>
       <a class="iconbtn" id="sheet-btn" href="https://docs.google.com/spreadsheets/d/1NbKaxie29WhzLnxkhVFKAA50EowPRLTsbahsYw3PPZI/edit" target="_blank" rel="noopener" data-i18n="sheet">Sheet</a>
       <button class="iconbtn" id="refresh-btn" type="button" data-i18n="refresh">Refresh</button>

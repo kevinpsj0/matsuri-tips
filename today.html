@@ -33,7 +33,11 @@
     position: sticky; top: 0; z-index: 10;
   }
   header.head h1 { font-size: 1.15rem; margin: 0; flex: 1; color: #fff; }
-  .brand-logo { width: 30px; height: 30px; border-radius: 7px; flex: none; }
+  .brand-logo {
+    width: 32px; height: 32px; border-radius: 8px; flex: none;
+    object-fit: cover; background: var(--bg);
+    box-shadow: 0 1px 5px rgba(42,35,32,0.22);
+  }
   .back { color: #fff; background: rgba(255,255,255,0.14); border-radius: 8px; padding: .4rem .6rem; text-decoration: none; font-size: .8rem; white-space: nowrap; }
   .lang-toggle { display: flex; gap: 2px; background: rgba(255,255,255,0.16); border-radius: 8px; padding: 2px; flex: none; }
   .lang-toggle button { border: 0; background: transparent; color: #fff; font-size: .72rem; padding: .3rem .45rem; border-radius: 6px; cursor: pointer; white-space: nowrap; }
@@ -187,7 +191,32 @@ let shiftsMap = {};
 let currentSid = null;
 let editShift = "dinner";
 let editChefRoster = []; // [{name}] role=Chef from the roster
-let showSplit = true; // global config: hide per-person split amounts when off
+let showSplit = false; // fail-closed: hidden until config (cache or fetch) says otherwise
+const CONFIG_KEY = "matsuri_config_v1";
+const CONFIG_CACHE_VERSION = 1;
+
+function validSlotsShape(s) {
+  if (!s || typeof s !== "object") return false;
+  const ok = (x) => x && /^\d{2}:\d{2}$/.test(x.timeIn) && /^\d{2}:\d{2}$/.test(x.timeOut) && minutesWorked(x.timeIn, x.timeOut) > 0;
+  return ["lunch", "dinner"].every(k => Array.isArray(s[k]) && s[k].length >= 1 && s[k].every(ok));
+}
+function applyConfig(cfg) {
+  if (!cfg) return;
+  if (typeof cfg.showSplit === "boolean") showSplit = cfg.showSplit;
+  const c = {};
+  if (validSlotsShape(cfg.slots)) c.slots = cfg.slots;
+  if (typeof cfg.kitchenPct === "number") c.kitchenPct = cfg.kitchenPct;
+  configure(c);
+}
+function loadCachedConfig() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CONFIG_KEY) || "null");
+    if (raw && raw.v === CONFIG_CACHE_VERSION && raw.config) applyConfig(raw.config);
+  } catch (e) {}
+}
+function cacheConfig(cfg) {
+  try { localStorage.setItem(CONFIG_KEY, JSON.stringify({ v: CONFIG_CACHE_VERSION, config: cfg })); } catch (e) {}
+}
 
 async function loadChefRoster() {
   try {
@@ -209,7 +238,7 @@ async function load() {
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     if (!data || !data.ok) throw new Error((data && data.error) || "load failed");
-    if (data.config && typeof data.config.showSplit === "boolean") showSplit = data.config.showSplit;
+    if (data.config) { applyConfig(data.config); cacheConfig(data.config); }
     render(data.rows || []);
   } catch (e) {
     content.innerHTML = `<div class="empty">${escapeHtml(t("could_not_load"))}</div>`;
@@ -252,7 +281,7 @@ function render(rows) {
 // ---- edit modal ----
 
 function slotOptions(shift, selectedId) {
-  return `<option value="">${escapeHtml(t("pick_time"))}</option>` + (SHIFT_SLOTS[shift] || []).map(s => `<option value="${s.id}"${s.id === selectedId ? " selected" : ""}>${escapeHtml(localizeSlotLabel(s.label))}</option>`).join("");
+  return `<option value="">${escapeHtml(t("pick_time"))}</option>` + (SHIFT_SLOTS[shift] || []).map(s => `<option value="${escapeHtml(s.id)}"${s.id === selectedId ? " selected" : ""}>${escapeHtml(slotLabel(s.timeIn, s.timeOut))}</option>`).join("");
 }
 
 function personRowHtml(p) {
@@ -379,6 +408,9 @@ content.addEventListener("click", (e) => {
     return { name: r.recipient || "", slot: slot ? slot.id : "", trainee: r.role === "Trainee", pct: r.traineePct };
   });
   renderEditPeople(servers.length ? servers : [{ name: "", slot: "", trainee: false }]);
+  // If a server's recorded slot no longer matches a current slot (owner retimed/removed it),
+  // the dropdown shows blank; hint the editor to re-pick rather than only erroring on Send.
+  reqErr.textContent = servers.some(s => s.name && !s.slot) ? t("slot_retimed_hint") : "";
   const checkedChefs = recs.filter((r) => r.role === "Chef").map((r) => r.recipient || "");
   renderEditChefs(checkedChefs);
   modal.classList.remove("hidden");
@@ -424,7 +456,10 @@ reqSend.addEventListener("click", async () => {
     });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
-    if (!data.ok) throw new Error(data.error || "send failed");
+    if (!data.ok) {
+      if (data.errorCode === "unknown_slot") { reqErr.textContent = t("slots_changed_refresh"); await loadChefRoster(); load(); return; }
+      throw new Error(data.error || "send failed");
+    }
     setMe(name);
     modal.classList.add("hidden");
     showToast(t("edit_sent_toast"));
@@ -459,6 +494,7 @@ langToggle.addEventListener("click", (e) => {
 
 applyStaticI18n();
 updateLangButtons();
+loadCachedConfig(); // seed slots/showSplit before the first edit-modal dropdown
 load();
 
 if ("serviceWorker" in navigator) {

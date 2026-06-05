@@ -1,19 +1,38 @@
 // calc.js — shift definitions, slot lookup, and pure tip-split calculation.
-// MUST match the mirrored copy in apps-script.gs (SHIFT_SLOTS / minutesWorked / splitShift).
-// splitShift does NO validation; the caller validates.
+// The block between the VERBATIM MIRROR markers MUST match the mirrored copy in
+// apps-script.gs byte-for-byte (DEFAULT_SLOTS / SHIFT_SLOTS / configure /
+// resetConfig / getSlot / findSlotByTimes / firstDuplicateName / minutesWorked /
+// slotLabel / splitShift). splitShift does NO validation; the caller validates.
+// calc.js must stay a classic, non-module, non-IIFE script: top-level `var` is
+// intentionally a window global so the entry/today pages can read SHIFT_SLOTS.
 
-var SHIFT_SLOTS = {
+// --- BEGIN VERBATIM MIRROR (keep byte-identical in apps-script.gs) ---
+var DEFAULT_SLOTS = {
   lunch: [
-    { id: "L1100", label: "11 – 4:30", timeIn: "11:00", timeOut: "16:30" },
-    { id: "L1200", label: "12 – 4:30", timeIn: "12:00", timeOut: "16:30" },
+    { id: "L1100", timeIn: "11:00", timeOut: "16:30" },
+    { id: "L1200", timeIn: "12:00", timeOut: "16:30" },
   ],
   dinner: [
-    { id: "D1530", label: "3:30 – close", timeIn: "15:30", timeOut: "21:30" },
-    { id: "D1630", label: "4:30 – close", timeIn: "16:30", timeOut: "21:30" },
-    { id: "D1730", label: "5:30 – close", timeIn: "17:30", timeOut: "21:30" },
-    { id: "D1800", label: "6 – close",    timeIn: "18:00", timeOut: "21:30" },
+    { id: "D1530", timeIn: "15:30", timeOut: "21:30" },
+    { id: "D1630", timeIn: "16:30", timeOut: "21:30" },
+    { id: "D1730", timeIn: "17:30", timeOut: "21:30" },
+    { id: "D1800", timeIn: "18:00", timeOut: "21:30" },
   ],
 };
+var DEFAULT_KITCHEN_PCT = 15;
+var SHIFT_SLOTS = DEFAULT_SLOTS;     // active table; replaced (never mutated in place) by configure()
+var KITCHEN_PCT = DEFAULT_KITCHEN_PCT;
+function configure(cfg) {
+  if (cfg && cfg.slots) SHIFT_SLOTS = cfg.slots;
+  if (cfg && typeof cfg.kitchenPct === "number") KITCHEN_PCT = cfg.kitchenPct;
+  // Intentional and mirror-safe: in apps-script.gs `typeof window` is "undefined"
+  // so this branch is skipped. DO NOT delete it from the Apps Script copy.
+  if (typeof window !== "undefined") { window.SHIFT_SLOTS = SHIFT_SLOTS; window.KITCHEN_PCT = KITCHEN_PCT; }
+}
+function resetConfig() {
+  SHIFT_SLOTS = DEFAULT_SLOTS; KITCHEN_PCT = DEFAULT_KITCHEN_PCT;
+  if (typeof window !== "undefined") { window.SHIFT_SLOTS = SHIFT_SLOTS; window.KITCHEN_PCT = KITCHEN_PCT; }
+}
 
 function getSlot(shiftType, slotId) {
   var slots = SHIFT_SLOTS[shiftType];
@@ -28,13 +47,6 @@ function findSlotByTimes(shiftType, timeIn, timeOut) {
   for (var i = 0; i < slots.length; i++) {
     if (slots[i].timeIn === timeIn && slots[i].timeOut === timeOut) return slots[i];
   }
-  return null;
-}
-
-function getSlotByLabel(shiftType, label) {
-  var slots = SHIFT_SLOTS[shiftType];
-  if (!slots) return null;
-  for (var i = 0; i < slots.length; i++) if (slots[i].label === label) return slots[i];
   return null;
 }
 
@@ -58,9 +70,22 @@ function minutesWorked(timeIn, timeOut) {
   return (Number(op[0]) * 60 + Number(op[1])) - (Number(ip[0]) * 60 + Number(ip[1]));
 }
 
+function slotLabel(timeIn, timeOut) {
+  function one(t) {
+    var p = String(t).split(":");
+    var h = Number(p[0]), m = Number(p[1]);
+    if (!isFinite(h) || !isFinite(m)) return String(t || "");
+    var ap = h < 12 ? "a" : "p";
+    var hh = h % 12; if (hh === 0) hh = 12;
+    return hh + (m ? ":" + String(m).padStart(2, "0") : "") + ap;
+  }
+  if (!timeIn || !timeOut) return "";
+  return one(timeIn) + "–" + one(timeOut); // en dash
+}
+
 function splitShift(input) {
   var T = Math.round(input.totalTips * 100);
-  var kitchenCents = Math.round(T * 0.15);
+  var kitchenCents = Math.round(T * KITCHEN_PCT / 100);
   var pool = T - kitchenCents;
 
   var servers = input.servers || [];
@@ -76,7 +101,7 @@ function splitShift(input) {
     var rate = p.trainee ? p.pct : 100;
     return {
       name: p.name, trainee: !!p.trainee, pct: p.trainee ? p.pct : null,
-      slot: slot ? slot.id : p.slot, slotLabel: slot ? slot.label : "",
+      slot: slot ? slot.id : p.slot, slotLabel: slot ? slotLabel(slot.timeIn, slot.timeOut) : "",
       timeIn: timeIn, timeOut: timeOut,
       hours: Math.round(minutes / 60 * 100) / 100, weight: minutes * rate,
     };
@@ -119,16 +144,19 @@ function splitShift(input) {
 
   return { shiftType: input.shiftType, kitchen: kitchenCents / 100, servers: serversOut, chefs: chefsOut };
 }
+// --- END VERBATIM MIRROR ---
 
 if (typeof window !== "undefined") {
   window.SHIFT_SLOTS = SHIFT_SLOTS;
   window.getSlot = getSlot;
   window.findSlotByTimes = findSlotByTimes;
-  window.getSlotByLabel = getSlotByLabel;
   window.firstDuplicateName = firstDuplicateName;
   window.splitShift = splitShift;
   window.minutesWorked = minutesWorked;
+  window.slotLabel = slotLabel;
+  window.configure = configure;
+  window.resetConfig = resetConfig;
 }
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { SHIFT_SLOTS: SHIFT_SLOTS, getSlot: getSlot, findSlotByTimes: findSlotByTimes, getSlotByLabel: getSlotByLabel, firstDuplicateName: firstDuplicateName, splitShift: splitShift, minutesWorked: minutesWorked };
+  module.exports = { SHIFT_SLOTS: SHIFT_SLOTS, DEFAULT_SLOTS: DEFAULT_SLOTS, DEFAULT_KITCHEN_PCT: DEFAULT_KITCHEN_PCT, getSlot: getSlot, findSlotByTimes: findSlotByTimes, firstDuplicateName: firstDuplicateName, splitShift: splitShift, minutesWorked: minutesWorked, slotLabel: slotLabel, configure: configure, resetConfig: resetConfig };
 }

@@ -38,7 +38,11 @@
     position: sticky; top: 0; z-index: 10;
   }
   .page-head h1 { margin: 0; font-size: 1.15rem; flex: 1; color: #fff; }
-  .brand-logo { width: 30px; height: 30px; border-radius: 7px; flex: none; }
+  .brand-logo {
+    width: 32px; height: 32px; border-radius: 8px; flex: none;
+    object-fit: cover; background: var(--bg);
+    box-shadow: 0 1px 5px rgba(42,35,32,0.22);
+  }
   .view-today { color: #fff; background: rgba(255,255,255,0.14); border-radius: 8px; padding: .4rem .6rem; text-decoration: none; font-size: .8rem; white-space: nowrap; }
   label { display: block; font-weight: 600; margin: 1rem 0 .25rem; }
   input[type=text], input[type=number], input[type=time], select {
@@ -222,12 +226,38 @@ async function postJSON(payload) {
 let currentShift = (new Date().getHours() * 60 + new Date().getMinutes()) < (18 * 60 + 30) ? "lunch" : "dinner";
 let chefRoster = []; // [{name}] from the staff roster (role=Chef)
 let todayShifts = { lunch: false, dinner: false }; // which shifts are already entered today
-let showSplit = true; // global config: whether to reveal the per-person split to servers
+let showSplit = false; // fail-closed: hidden until config (cache or fetch) says otherwise
+const CONFIG_KEY = "matsuri_config_v1";
+const CONFIG_CACHE_VERSION = 1;
+
+function validSlotsShape(s) {
+  if (!s || typeof s !== "object") return false;
+  // Reject a corrupt cache that could feed a negative/zero-length slot into splitShift.
+  const ok = (x) => x && /^\d{2}:\d{2}$/.test(x.timeIn) && /^\d{2}:\d{2}$/.test(x.timeOut) && minutesWorked(x.timeIn, x.timeOut) > 0;
+  return ["lunch", "dinner"].every(k => Array.isArray(s[k]) && s[k].length >= 1 && s[k].every(ok));
+}
+function applyConfig(cfg) {
+  if (!cfg) return;
+  if (typeof cfg.showSplit === "boolean") showSplit = cfg.showSplit;
+  const c = {};
+  if (validSlotsShape(cfg.slots)) c.slots = cfg.slots;
+  if (typeof cfg.kitchenPct === "number") c.kitchenPct = cfg.kitchenPct;
+  configure(c);
+}
+function loadCachedConfig() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CONFIG_KEY) || "null");
+    if (raw && raw.v === CONFIG_CACHE_VERSION && raw.config) applyConfig(raw.config);
+  } catch (e) {}
+}
+function cacheConfig(cfg) {
+  try { localStorage.setItem(CONFIG_KEY, JSON.stringify({ v: CONFIG_CACHE_VERSION, config: cfg })); } catch (e) {}
+}
 
 function populateSlotSelect(sel, selectedId) {
   const slots = SHIFT_SLOTS[currentShift] || [];
   sel.innerHTML = `<option value="">${escapeHtml(t("pick_time"))}</option>` +
-    slots.map(s => `<option value="${s.id}"${s.id === selectedId ? " selected" : ""}>${escapeHtml(localizeSlotLabel(s.label))}</option>`).join("");
+    slots.map(s => `<option value="${escapeHtml(s.id)}"${s.id === selectedId ? " selected" : ""}>${escapeHtml(slotLabel(s.timeIn, s.timeOut))}</option>`).join("");
 }
 
 const shiftToggle = document.getElementById("shift-toggle");
@@ -279,8 +309,11 @@ function loadTodayShifts() {
     .then(r => r.json())
     .then(data => {
       if (!data || !data.ok || !Array.isArray(data.rows)) return;
-      if (data.config && typeof data.config.showSplit === "boolean") {
-        showSplit = data.config.showSplit;
+      if (data.config) {
+        applyConfig(data.config);
+        cacheConfig(data.config);
+        // Rebuild slot dropdowns; keep a selection only if still valid.
+        peopleContainer.querySelectorAll(".p-slot").forEach(sel => populateSlotSelect(sel, getSlot(currentShift, sel.value) ? sel.value : ""));
         updatePreview();
       }
       const s = { lunch: false, dinner: false };
@@ -554,6 +587,7 @@ wireNameField(enteredByEl, enteredByOtherEl);
 applyStaticI18n();
 updateLangButtons();
 renderShiftToggle();
+loadCachedConfig(); // seed slots/kitchen %/showSplit before the first dropdown is built
 addPerson();
 applyRememberedName();
 updatePreview();
@@ -668,6 +702,9 @@ async function submitShift() {
   if (response.ok) {
     setMe(payload.enteredBy);
     renderConfirmation(response);
+  } else if (response.errorCode === "unknown_slot") {
+    showBanner("error", escapeHtml(t("slots_changed_refresh")));
+    loadTodayShifts(); // refresh the dropdowns to the current slots
   } else if (response.retryable) {
     showBanner("error", escapeHtml(t("err_save_retry")));
   } else {
@@ -735,18 +772,23 @@ async function flushQueue() {
   if (!q.length) return;
   flushing = true;
   const remaining = [];
+  let droppedSlotChange = false;
   for (const p of q) {
     try {
       const data = await postJSON(p);
       // Keep only if the server explicitly asked to retry; drop on success or a
       // permanent error (already entered / invalid) so the queue can't get stuck.
-      if (!data || (!data.ok && data.retryable)) remaining.push(p);
+      if (!data || (!data.ok && data.retryable)) { remaining.push(p); continue; }
+      // Flag the one permanent error that loses real data with no other feedback:
+      // a slot the owner changed while this entry was queued offline.
+      if (data && data.errorCode === "unknown_slot") droppedSlotChange = true;
     } catch (e) {
       remaining.push(p); // still offline
     }
   }
   setQueue(remaining);
   flushing = false;
+  if (droppedSlotChange) showBanner("error", escapeHtml(t("offline_slot_dropped")));
   if (remaining.length < q.length) loadTodayShifts(); // a queued shift may now be taken
 }
 window.addEventListener("online", flushQueue);

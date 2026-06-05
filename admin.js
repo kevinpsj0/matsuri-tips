@@ -19,6 +19,9 @@ let actionBusy = false;
 let period = "today";
 let activeTab = "summary";
 let showSplitConfig = true; // global config mirrored from the backend (Settings tab)
+let kitchenPctConfig = 15;   // global config mirrored from the backend (Settings tab)
+let slotsConfig = null;      // {lunch,dinner} from the backend; null until first fetch
+let slotsEdit = null;        // deep-clone working copy the Settings slot editor mutates
 // locale() (Intl locale for the chosen language) is shared from i18n.js.
 let calMonth = null; // { y, m } 1-based month
 let calDay = null;   // ISO date when drilled into a single day, else null
@@ -37,13 +40,6 @@ function toISO(dt) {
 function isoWeekday(iso) { const { y, m, d } = isoParts(iso); return new Date(y, m - 1, d).getDay(); }
 function addDays(iso, n) { const { y, m, d } = isoParts(iso); const dt = new Date(y, m - 1, d); dt.setDate(dt.getDate() + n); return toISO(dt); }
 function lastDayOfMonth(y, m) { return new Date(y, m, 0).getDate(); }
-function enumerateDays(start, end) {
-  const out = [];
-  let cur = start;
-  let guard = 0;
-  while (cur <= end && guard < 1000) { out.push(cur); cur = addDays(cur, 1); guard++; }
-  return out;
-}
 
 function currentRange() {
   const today = todayISO();
@@ -115,7 +111,7 @@ async function tryPin(pin, silent) {
     sessionPin = pin;
     localStorage.setItem(PIN_KEY, pin);
     allRows = data.rows || []; staffList = data.staff || [];
-    if (data.config && typeof data.config.showSplit === "boolean") showSplitConfig = data.config.showSplit;
+    mirrorConfig(data.config);
     gateEl.classList.add("hidden");
     appEl.classList.remove("hidden");
     render();
@@ -233,10 +229,20 @@ async function refresh() {
   view.innerHTML = `<div class="loading">${escapeHtml(t("loading"))}</div>`;
   try {
     const data = await fetchData(sessionPin);
-    if (data && data.ok) { allRows = data.rows || []; staffList = data.staff || []; if (data.config && typeof data.config.showSplit === "boolean") showSplitConfig = data.config.showSplit; render(); return; }
+    if (data && data.ok) { allRows = data.rows || []; staffList = data.staff || []; mirrorConfig(data.config); render(); return; }
     if (data && data.error) { signOut(); return; }
   } catch (e) { /* keep existing data */ }
   render();
+}
+
+// Mirror the backend config into local state. Resets the slot editor clone only
+// when the owner isn't mid-edit on the Settings tab, so a refresh won't discard
+// unsaved slot edits.
+function mirrorConfig(cfg) {
+  if (!cfg) return;
+  if (typeof cfg.showSplit === "boolean") showSplitConfig = cfg.showSplit;
+  if (typeof cfg.kitchenPct === "number") kitchenPctConfig = cfg.kitchenPct;
+  if (cfg.slots) { slotsConfig = cfg.slots; if (activeTab !== "settings") slotsEdit = null; }
 }
 
 function signOut() {
@@ -257,7 +263,7 @@ function render() {
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === activeTab));
 
   const view = document.getElementById("view");
-  if (activeTab === "settings") { view.innerHTML = renderSettings(); return; }
+  if (activeTab === "settings") { if (!slotsEdit) slotsEdit = slotsWorkingCopy(); view.innerHTML = renderSettings(); return; }
   if (activeTab === "calendar") { view.innerHTML = calDay ? renderCalDayDetail(calDay) : renderCalendar(); return; }
 
   const { start, end } = currentRange();
@@ -622,8 +628,7 @@ function emptyState(msg) { return `<div class="empty-state">${escapeHtml(msg)}</
 function renderSettings() {
   const lang = getLang();
   const langBtn = (code, label) => `<button type="button" data-set-lang="${code}"${lang === code ? ' class="active"' : ""}>${escapeHtml(label)}</button>`;
-  return `<div class="panel">
-    <div class="set-row">
+  const head = `<div class="set-row">
       <div class="set-label">${escapeHtml(t("settings_language"))}</div>
       <div class="set-langs">${langBtn("en", "English")}${langBtn("ko", "한국어")}</div>
     </div>
@@ -633,8 +638,92 @@ function renderSettings() {
         <label class="set-switch"><input type="checkbox" id="set-show-split"${showSplitConfig ? " checked" : ""}><span class="set-slider"></span></label>
       </div>
       <div class="set-status" id="set-split-status"></div>
+    </div>`;
+  // Until the first config fetch lands, slotsConfig is null — show a loading line
+  // for the kitchen %/slot editor rather than empty editable fields a Save could push.
+  if (!slotsConfig) {
+    return `<div class="panel">${head}
+      <div class="set-row"><div class="set-label">${escapeHtml(t("settings_time_slots"))}</div><div class="set-status">${escapeHtml(t("loading"))}</div></div>
+    </div>`;
+  }
+  const slots = slotsEdit || { lunch: [], dinner: [] };
+  const slotRow = (shift, s, i, n) => `<div class="slot-row" data-shift="${shift}" data-i="${i}">
+      <input type="time" class="slot-in" value="${escapeHtml(s.timeIn || "")}" data-shift="${shift}" data-i="${i}" data-field="timeIn">
+      <span class="slot-dash">–</span>
+      <input type="time" class="slot-out" value="${escapeHtml(s.timeOut || "")}" data-shift="${shift}" data-i="${i}" data-field="timeOut">
+      <span class="slot-preview">${escapeHtml(slotLabel(s.timeIn, s.timeOut))}</span>
+      <button type="button" class="slot-remove" data-shift="${shift}" data-i="${i}"${n <= 1 ? " disabled" : ""}>×</button>
+    </div>`;
+  const group = (shift, title) => `<div class="slot-group">
+      <div class="slot-group-h">${escapeHtml(title)}</div>
+      ${(slots[shift] || []).map((s, i) => slotRow(shift, s, i, (slots[shift] || []).length)).join("")}
+      <button type="button" class="slot-add" data-shift="${shift}">${escapeHtml(t("slot_add"))}</button>
+    </div>`;
+  return `<div class="panel">${head}
+    <div class="set-row">
+      <div class="set-toggle-row">
+        <div class="set-label">${escapeHtml(t("settings_kitchen_pct"))}</div>
+        <input type="number" id="set-kitchen-pct" min="0" max="50" step="1" value="${escapeHtml(String(kitchenPctConfig))}" style="width:5rem">
+      </div>
+      <div class="set-status" id="set-kitchen-status"></div>
+    </div>
+    <div class="set-row">
+      <div class="set-label">${escapeHtml(t("settings_time_slots"))}</div>
+      ${group("lunch", t("lunch"))}
+      ${group("dinner", t("dinner"))}
+      <button type="button" id="set-slots-save" class="btn-primary" style="margin-top:.6rem">${escapeHtml(t("slot_save"))}</button>
+      <div class="set-status" id="set-slots-status"></div>
     </div>
   </div>`;
+}
+
+function slotsWorkingCopy() {
+  if (!slotsConfig) return { lunch: [], dinner: [] };
+  return JSON.parse(JSON.stringify(slotsConfig)); // deep clone; editor never touches live config
+}
+function updateSlotField(input) {
+  const sh = input.dataset.shift, i = Number(input.dataset.i), f = input.dataset.field;
+  if (!(slotsEdit && slotsEdit[sh] && slotsEdit[sh][i])) return;
+  slotsEdit[sh][i][f] = input.value;
+  const rowEl = input.closest(".slot-row");
+  const prev = rowEl && rowEl.querySelector(".slot-preview");
+  if (prev) prev.textContent = slotLabel(slotsEdit[sh][i].timeIn, slotsEdit[sh][i].timeOut);
+}
+function commitSlotInputs() {
+  document.querySelectorAll("#view .slot-row .slot-in, #view .slot-row .slot-out").forEach(updateSlotField);
+}
+
+async function saveKitchenPct(val) {
+  const status = document.getElementById("set-kitchen-status");
+  const n = parseInt(val, 10);
+  if (!Number.isInteger(n) || n < 0 || n > 50) { if (status) status.textContent = t("slot_save_fail"); return; }
+  if (status) status.textContent = t("saving");
+  try {
+    const res = await fetch(ENDPOINT_URL, { method: "POST", mode: "cors", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "setKitchenPct", pin: sessionPin, kitchenPct: n }) });
+    const data = await res.json();
+    if (!data || !data.ok) throw new Error((data && data.error) || "fail");
+    if (data.config && typeof data.config.kitchenPct === "number") kitchenPctConfig = data.config.kitchenPct;
+    if (status) status.textContent = t("saved");
+  } catch (e) {
+    const inp = document.getElementById("set-kitchen-pct"); if (inp) inp.value = String(kitchenPctConfig);
+    if (status) status.textContent = t("slot_save_fail");
+  }
+}
+
+async function saveSlots() {
+  commitSlotInputs();
+  const status = document.getElementById("set-slots-status");
+  if (status) status.textContent = t("saving");
+  try {
+    const res = await fetch(ENDPOINT_URL, { method: "POST", mode: "cors", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "setSlots", pin: sessionPin, slots: slotsEdit }) });
+    const data = await res.json();
+    if (!data || !data.ok) throw new Error((data && data.error) || "fail");
+    if (data.config && data.config.slots) { slotsConfig = data.config.slots; slotsEdit = slotsWorkingCopy(); }
+    render();
+    const s2 = document.getElementById("set-slots-status"); if (s2) s2.textContent = t("saved");
+  } catch (e) {
+    if (status) status.textContent = (e && e.message) || t("slot_save_fail");
+  }
 }
 
 // Language is a device-local preference; re-translate the chrome and re-render
@@ -728,6 +817,12 @@ function wireEvents() {
       setStaffActive(name, action === "activate");
       return;
     }
+    // Settings: slot editor (commit visible inputs before any structural re-render).
+    if (e.target.closest("#set-slots-save")) { saveSlots(); return; }
+    const addBtn = e.target.closest(".slot-add");
+    if (addBtn) { commitSlotInputs(); const sh = addBtn.dataset.shift; slotsEdit[sh] = slotsEdit[sh] || []; if (slotsEdit[sh].length < 8) slotsEdit[sh].push({ timeIn: "", timeOut: "" }); render(); return; }
+    const rmBtn = e.target.closest(".slot-remove");
+    if (rmBtn) { commitSlotInputs(); const sh = rmBtn.dataset.shift, i = Number(rmBtn.dataset.i); if (slotsEdit[sh] && slotsEdit[sh].length > 1) { slotsEdit[sh].splice(i, 1); render(); } return; }
   });
   // Submit add-staff on Enter in the input.
   document.getElementById("view").addEventListener("keydown", (e) => {
@@ -741,6 +836,8 @@ function wireEvents() {
   // Settings: the show-split toggle is a checkbox change, not a click.
   document.getElementById("view").addEventListener("change", (e) => {
     if (e.target && e.target.id === "set-show-split") setConfigShowSplit(e.target.checked);
+    if (e.target && e.target.id === "set-kitchen-pct") saveKitchenPct(e.target.value);
+    if (e.target && (e.target.classList.contains("slot-in") || e.target.classList.contains("slot-out"))) updateSlotField(e.target);
   });
 
   const modal = document.getElementById("shift-modal");

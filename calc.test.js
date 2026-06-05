@@ -1,11 +1,11 @@
 // calc.test.js — run with: node calc.test.js
 // Tests the pure core in calc.js (Node export). Browser mirror lives in test.html.
 const assert = require("assert");
-const { splitShift, minutesWorked, getSlot, findSlotByTimes, SHIFT_SLOTS, firstDuplicateName } = require("./calc.js");
+const { splitShift, minutesWorked, getSlot, findSlotByTimes, SHIFT_SLOTS, firstDuplicateName, slotLabel, configure, resetConfig } = require("./calc.js");
 
 let pass = 0, fail = 0;
 function test(name, fn) {
-  try { fn(); pass++; console.log("PASS  " + name); }
+  try { resetConfig(); fn(); resetConfig(); pass++; console.log("PASS  " + name); }
   catch (e) { fail++; console.log("FAIL  " + name + "\n      " + e.message); }
 }
 function sum(out) {
@@ -130,6 +130,45 @@ test("firstDuplicateName: returns the first repeated name when several repeat", 
 
 test("firstDuplicateName: empty list -> null", () => {
   assert.strictEqual(firstDuplicateName([]), null);
+});
+
+test("slotLabel: drops :00, single-letter meridiem, en dash", () => {
+  assert.strictEqual(slotLabel("11:00", "16:30"), "11a–4:30p");
+  assert.strictEqual(slotLabel("15:30", "21:30"), "3:30p–9:30p");
+});
+test("slotLabel: noon and midnight", () => {
+  assert.strictEqual(slotLabel("12:00", "12:30"), "12p–12:30p");
+  assert.strictEqual(slotLabel("00:00", "00:30"), "12a–12:30a");
+});
+test("slotLabel: blank times -> empty string", () => {
+  assert.strictEqual(slotLabel("", ""), "");
+  assert.strictEqual(slotLabel("11:00", ""), "");
+});
+
+test("kitchenPct=0: kitchen takes nothing, sum invariant holds", () => {
+  configure({ kitchenPct: 0 });
+  const out = splitShift({ shiftType: "dinner", totalTips: 100, servers: [srv("A", "D1630")], chefs: [] });
+  assert.strictEqual(out.kitchen, 0);
+  assert.strictEqual(out.servers[0].amount, 100);
+  assert.strictEqual(Math.round(sum(out) * 100), 10000);
+});
+test("kitchenPct=20 dinner with a chef: kitchen=20%, sum invariant holds", () => {
+  configure({ kitchenPct: 20 });
+  const out = splitShift({ shiftType: "dinner", totalTips: 300, servers: [srv("A", "D1630")], chefs: [{ name: "C" }] });
+  assert.strictEqual(out.kitchen, 60); // round(30000*0.20)/100
+  assert.strictEqual(Math.round(sum(out) * 100), 30000);
+});
+test("non-15 pct + chefs on lunch (double-round path) keeps the sum invariant", () => {
+  configure({ kitchenPct: 12 });
+  const out = splitShift({ shiftType: "lunch", totalTips: 333.33, servers: [srv("A", "L1100"), srv("B", "L1200")], chefs: [{ name: "C" }, { name: "D" }] });
+  assert.strictEqual(Math.round(sum(out) * 100), 33333);
+});
+test("custom slots via configure: getSlot and splitShift use them", () => {
+  configure({ slots: { lunch: [{ id: "X", timeIn: "10:00", timeOut: "14:00" }], dinner: [] } });
+  assert.strictEqual(getSlot("lunch", "X").timeOut, "14:00");
+  const out = splitShift({ shiftType: "lunch", totalTips: 100, servers: [srv("A", "X")], chefs: [] });
+  assert.strictEqual(out.servers[0].slotLabel, "10a–2p");
+  assert.strictEqual(out.servers[0].hours, 4);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
