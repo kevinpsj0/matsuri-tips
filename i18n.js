@@ -58,6 +58,8 @@ var I18N = {
     err_save_retry: "Could not save. Try again in a few seconds.",
     err_entry_prefix: "Something was wrong with your entry: ",
     unknown_error: "Unknown error",
+    a2hs_hint: "Add this app to your Home Screen: tap Share, then “Add to Home Screen”. It keeps your name saved.",
+    a2hs_dismiss: "Dismiss",
 
     // today app
     today_title: "Today's shifts",
@@ -165,6 +167,13 @@ var I18N = {
     no_earnings_active: "No earnings yet for active staff in this period.",
     add_staff_start: "Add staff above to start tracking earnings.",
     trainee_tag: "{pct}% trainee",
+    former_staff: "Former staff ({n})",
+    owed_badge: "owed {amount}",
+    trainee_rate_suffix: "(trainee)",
+    rename: "Rename",
+    save: "Save",
+    rename_merge_confirm: "Merge {old} into {new}? Their shifts and payouts will combine.",
+    could_not_rename: "Could not rename.",
     confirm_inactivate: "Inactivate {name}? They will be hidden from the entry form and leaderboard.",
 
     // payouts
@@ -251,6 +260,8 @@ var I18N = {
     err_save_retry: "저장하지 못했습니다. 잠시 후 다시 시도하세요.",
     err_entry_prefix: "입력에 문제가 있습니다: ",
     unknown_error: "알 수 없는 오류",
+    a2hs_hint: "이 앱을 홈 화면에 추가하세요: 공유 버튼을 누른 뒤 “홈 화면에 추가”를 선택하세요. 이름이 저장됩니다.",
+    a2hs_dismiss: "닫기",
 
     // today app
     today_title: "오늘의 시프트",
@@ -358,6 +369,13 @@ var I18N = {
     no_earnings_active: "이 기간에 활성 직원의 수입이 없습니다.",
     add_staff_start: "위에서 직원을 추가해 수입을 추적하세요.",
     trainee_tag: "{pct}% 수습",
+    former_staff: "이전 직원 ({n})",
+    owed_badge: "미지급 {amount}",
+    trainee_rate_suffix: "(수습)",
+    rename: "이름 변경",
+    save: "저장",
+    rename_merge_confirm: "{old}님을 {new}님으로 합칠까요? 근무와 지급 내역이 합쳐집니다.",
+    could_not_rename: "이름을 변경하지 못했습니다.",
     confirm_inactivate: "{name}님을 비활성화할까요? 입력 양식과 순위에서 숨겨집니다.",
 
     // payouts
