@@ -213,6 +213,15 @@
   .lb-track { height: .6rem; background: #eef0f5; border-radius: 4px; overflow: hidden; margin: .35rem 0 .3rem; }
   .lb-bar { height: 100%; background: var(--gold); border-radius: 4px; }
   .lb-meta { font-size: .8rem; color: var(--muted); }
+  .lb-row { cursor: pointer; }
+  .lb-right { display: inline-flex; align-items: center; gap: .4rem; }
+  .lb-owed { font-size: .72rem; font-weight: 600; color: #8a6d1a; background: #fff7e6; border: 1px solid #f0d98c; border-radius: 999px; padding: .05rem .45rem; cursor: pointer; }
+  .lb-detail { display: none; margin: .35rem 0 .1rem; }
+  .lb-row.open .lb-detail { display: block; }
+  .lb-detail-row { display: flex; justify-content: space-between; font-size: .78rem; color: var(--muted); padding: .22rem 0; border-top: 1px dashed var(--line); }
+  .lb-former { margin-top: .8rem; }
+  .lb-former > summary { font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); cursor: pointer; padding: .35rem 0; }
+  .lb-former .lb-row { opacity: .6; }
   .tip-pop { position: fixed; z-index: 50; background: var(--indigo); color: #fff; padding: .4rem .65rem; border-radius: 8px; font-size: .82rem; box-shadow: 0 6px 18px rgba(0,0,0,0.28); pointer-events: none; white-space: nowrap; }
   .dl-bar { cursor: pointer; }
   .modal { position: fixed; inset: 0; background: rgba(42,35,32,0.5); display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 40; }
