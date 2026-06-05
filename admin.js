@@ -45,6 +45,13 @@ function currentRange() {
   const today = todayISO();
   if (period === "today") return { start: today, end: today };
   if (period === "yesterday") { const y = addDays(today, -1); return { start: y, end: y }; }
+  if (period === "last3") {
+    // The 3 most recent days the restaurant actually had shifts (skips closed days).
+    const days = Array.from(new Set(allRows.map((r) => r.date).filter((d) => d && d <= today))).sort();
+    if (!days.length) return { start: today, end: today };
+    const last3 = days.slice(-3);
+    return { start: last3[0], end: last3[last3.length - 1] };
+  }
   if (period === "week") { const start = addDays(today, -isoWeekday(today)); return { start, end: addDays(start, 6) }; }
   if (period === "month") { const { y, m } = isoParts(today); return { start: `${y}-${String(m).padStart(2, "0")}-01`, end: `${y}-${String(m).padStart(2, "0")}-${String(lastDayOfMonth(y, m)).padStart(2, "0")}` }; }
   // custom
