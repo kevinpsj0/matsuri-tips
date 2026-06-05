@@ -310,26 +310,23 @@ function render() {
 
 function renderSummary(rows, start, end) {
   if (!rows.length) return emptyState(t("no_shifts_period"));
-  let total = 0, kitchen = 0, chefs = 0, servers = 0, trainees = 0;
-  const staff = new Set();
-  const shifts = new Set();
+  // Owner-facing summary: the total and where it went. Trainees count as servers
+  // (front of house); shift/staff counts are left off as low-signal.
+  let total = 0, kitchen = 0, chefs = 0, servers = 0;
   for (const r of rows) {
     total += r.amount;
     if (r.role === "Kitchen") kitchen += r.amount;
-    else if (r.role === "Chef") { chefs += r.amount; staff.add((r.recipient || "").trim().toLowerCase()); }
-    else if (r.role === "Trainee") { trainees += r.amount; staff.add((r.recipient || "").trim().toLowerCase()); }
-    else { servers += r.amount; staff.add((r.recipient || "").trim().toLowerCase()); }
-    if (r.submissionId) shifts.add(r.submissionId);
+    else if (r.role === "Chef") chefs += r.amount;
+    else servers += r.amount; // Server + Trainee
   }
   const cards = `
     <div class="cards">
       <div class="card hero"><div class="k">${escapeHtml(t("card_total_tips"))}</div><div class="v">${fmt(total)}</div></div>
-      <div class="card"><div class="k">${escapeHtml(t("kitchen"))}</div><div class="v">${fmt(kitchen)}</div></div>
-      <div class="card"><div class="k">${escapeHtml(t("card_chefs"))}</div><div class="v">${fmt(chefs)}</div></div>
+    </div>
+    <div class="cards cards-3">
       <div class="card"><div class="k">${escapeHtml(t("card_servers"))}</div><div class="v">${fmt(servers)}</div></div>
-      <div class="card"><div class="k">${escapeHtml(t("card_trainees"))}</div><div class="v">${fmt(trainees)}</div></div>
-      <div class="card"><div class="k">${escapeHtml(t("card_shifts"))}</div><div class="v">${shifts.size}</div></div>
-      <div class="card"><div class="k">${escapeHtml(t("card_distinct_staff"))}</div><div class="v">${staff.size}</div></div>
+      <div class="card"><div class="k">${escapeHtml(t("card_chefs"))}</div><div class="v">${fmt(chefs)}</div></div>
+      <div class="card"><div class="k">${escapeHtml(t("kitchen"))}</div><div class="v">${fmt(kitchen)}</div></div>
     </div>`;
 
   let chart;
