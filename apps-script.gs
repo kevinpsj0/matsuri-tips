@@ -400,6 +400,81 @@ function handleSetStaffTrainee(payload) {
   }
 }
 
+// Admin-only: rename a staff member, rewriting the roster, ledger history, and
+// payout log so totals and owed balances follow the new spelling. If the new
+// name matches another roster member of the SAME role, the two merge (the
+// target row's role/active/trainee settings survive). Cross-role merges are
+// rejected. Runs under a lock; mirrors the PIN check used by the other actions.
+function handleRenameStaff(payload) {
+  const storedPin = PropertiesService.getScriptProperties().getProperty("ADMIN_PIN");
+  if (!storedPin) return jsonResponse({ ok: false, error: "Admin access is not configured yet." });
+  if (typeof payload.pin !== "string" || payload.pin !== storedPin) {
+    Utilities.sleep(1000);
+    return jsonResponse({ ok: false, error: "Wrong PIN." });
+  }
+  const oldName = typeof payload.oldName === "string" ? payload.oldName.trim() : "";
+  const newName = typeof payload.newName === "string" ? payload.newName.trim() : "";
+  if (!oldName || !newName) return jsonResponse({ ok: false, error: "Both names are required" });
+  if (newName.length > 40) return jsonResponse({ ok: false, error: "Name is too long (40 chars max)" });
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return jsonResponse({ ok: false, retryable: true, error: "Busy, try again." });
+  try {
+    const sheet = getOrCreateStaffSheet(ss);
+    const rows = readStaffRows(sheet);
+    const oldKey = oldName.toLowerCase();
+    const newKey = newName.toLowerCase();
+    const oldRow = rows.filter(function (s) { return s.name.toLowerCase() === oldKey; })[0];
+    if (!oldRow) return jsonResponse({ ok: false, error: oldName + " is not on the roster." });
+
+    if (oldKey === newKey) {
+      // Re-capitalization only.
+      sheet.getRange(oldRow.rowIdx, 1).setValue(safeText(newName));
+    } else {
+      const target = rows.filter(function (s) { return s.name.toLowerCase() === newKey; })[0];
+      if (target) {
+        if (target.role !== oldRow.role) {
+          return jsonResponse({ ok: false, error: "That name is already used by a different role. Change the role first." });
+        }
+        // Merge: target row survives; remove the old row from the roster.
+        sheet.getRange(oldRow.rowIdx, 1).setValue("");
+      } else {
+        sheet.getRange(oldRow.rowIdx, 1).setValue(safeText(newName));
+      }
+    }
+
+    rewriteColumn(ss.getSheets()[0], COL.RECIPIENT, oldKey, newName);
+    rewritePayoutName(ss, oldKey, newName);
+    return jsonResponse({ ok: true });
+  } catch (err) {
+    return jsonResponse({ ok: false, retryable: true, error: String(err && err.message || err) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Rewrite a single-column range in sheet, replacing cells whose trimmed
+// lowercase value matches oldKey with newName. No-op when the sheet is empty.
+function rewriteColumn(sheet, col, oldKey, newName) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  const range = sheet.getRange(2, col, lastRow - 1, 1);
+  const vals = range.getValues();
+  let changed = false;
+  for (let i = 0; i < vals.length; i++) {
+    if (String(vals[i][0] || "").trim().toLowerCase() === oldKey) { vals[i][0] = newName; changed = true; }
+  }
+  if (changed) range.setValues(vals);
+}
+
+// Rewrite payout-log names (Payouts col 2: Date, Name, Amount) matching oldKey.
+function rewritePayoutName(ss, oldKey, newName) {
+  const sheet = ss.getSheetByName("Payouts");
+  if (!sheet) return;
+  rewriteColumn(sheet, 2, oldKey, newName);
+}
+
 // The Staff roster is the source of truth for trainee status. Overwrite each
 // submitted server's trainee/pct from the roster so a stale phone (or an
 // off-roster "Other" name) can't set the wrong level.
@@ -1225,6 +1300,9 @@ function doPost(e) {
   }
   if (payload && payload.action === "setStaffTrainee") {
     return handleSetStaffTrainee(payload);
+  }
+  if (payload && payload.action === "renameStaff") {
+    return handleRenameStaff(payload);
   }
   if (payload && payload.action === "recordPayout") {
     return handleRecordPayout(payload);
