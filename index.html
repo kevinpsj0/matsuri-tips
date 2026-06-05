@@ -200,6 +200,16 @@ function escapeHtml(s) {
   ));
 }
 
+// The restaurant runs on Pacific Time; anchor all "now"/"today" to PT regardless
+// of the device's clock, matching the backend.
+const TZ = "America/Los_Angeles";
+function nowPTMinutes() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
+  const h = Number(parts.find(p => p.type === "hour").value) % 24; // hour12:false can yield "24" at midnight
+  const m = Number(parts.find(p => p.type === "minute").value);
+  return h * 60 + m;
+}
+
 // POST a JSON payload to the Apps Script endpoint and return the parsed reply.
 async function postJSON(payload) {
   const res = await fetch(ENDPOINT_URL, {
@@ -214,7 +224,7 @@ async function postJSON(payload) {
 // ---- shift type + slots ----
 // Declared up here (before the bottom init calls) so createPersonRow ->
 // populateSlotSelect can read currentShift without a temporal-dead-zone error.
-let currentShift = (new Date().getHours() * 60 + new Date().getMinutes()) < (18 * 60 + 30) ? "lunch" : "dinner";
+let currentShift = nowPTMinutes() < (18 * 60 + 30) ? "lunch" : "dinner";
 let chefRoster = []; // [{name}] from the staff roster (role=Chef)
 let todayShifts = { lunch: false, dinner: false }; // which shifts are already entered today
 let showSplit = false; // fail-closed: hidden until config (cache or fetch) says otherwise
@@ -692,7 +702,7 @@ async function submitShift() {
 }
 
 function todayDateStr() {
-  return new Date().toLocaleDateString(locale(), { month: "numeric", day: "numeric" });
+  return new Intl.DateTimeFormat(locale(), { timeZone: TZ, month: "numeric", day: "numeric" }).format(new Date());
 }
 
 function renderConfirmation(response) {

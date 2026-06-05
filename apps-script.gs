@@ -12,6 +12,11 @@ const COL = {
 };
 const NUM_COLS = COL.SUBMISSION_ID;
 
+// The restaurant runs on Pacific Time. All dates/times are formatted in PT
+// explicitly (not via the spreadsheet's tz setting) so they can't drift if the
+// sheet's timezone is ever changed. setupSheet also sets the sheet tz to match.
+const TZ = "America/Los_Angeles";
+
 // Alternating row shades so each shift's block of rows is visually distinct.
 // Index 0 (white) and index 1 (light gray) flip from one shift to the next.
 const SHIFT_SHADES = ["#ffffff", "#f0f0f0"];
@@ -437,7 +442,7 @@ function readPayouts(ss) {
   if (!sheet) return [];
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  const tz = ss.getSpreadsheetTimeZone();
+  const tz = TZ;
   const vals = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
   const out = [];
   for (const r of vals) {
@@ -499,7 +504,7 @@ function handleRecordPayout(payload) {
     const entry = computeOwedCents(ss)[name.toLowerCase()];
     const cents = entry ? entry.owedCents : 0;
     if (cents <= 0) return jsonResponse({ ok: false, error: "Nothing to pay out for " + name + "." });
-    const tz = ss.getSpreadsheetTimeZone();
+    const tz = TZ;
     const today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
     getOrCreatePayoutsSheet(ss).appendRow([today, entry.display, cents / 100]);
     return jsonResponse({ ok: true, name: entry.display, amount: cents / 100 });
@@ -523,7 +528,7 @@ function handleRecordPayoutAll(payload) {
   if (!lock.tryLock(10000)) return jsonResponse({ ok: false, retryable: true, error: "Busy, try again." });
   try {
     const owed = computeOwedCents(ss);
-    const tz = ss.getSpreadsheetTimeZone();
+    const tz = TZ;
     const today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
     const rowsToAppend = [], paid = [];
     for (const k in owed) {
@@ -564,7 +569,7 @@ function handleFetchData(payload) {
   const staff = staffSheet ? readStaffRows(staffSheet).map(function (s) { return { name: s.name, active: s.active, role: s.role, traineePct: s.traineePct }; }) : [];
   if (lastRow < 2) return jsonResponse({ ok: true, rows: [], staff: staff, config: configObject(), payouts: readPayouts(ss) });
 
-  const tz = ss.getSpreadsheetTimeZone();
+  const tz = TZ;
   const asDateStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "yyyy-MM-dd") : String(v || "");
   const asTimeStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "HH:mm") : String(v || "");
   const numOrNull = (v) => (v === "" || v === null || v === undefined) ? null : Number(v);
@@ -598,7 +603,7 @@ function handleFetchToday() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return jsonResponse({ ok: true, rows: [], config: configObject() });
 
-  const tz = ss.getSpreadsheetTimeZone();
+  const tz = TZ;
   const today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
   const asDateStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "yyyy-MM-dd") : String(v || "");
   const asTimeStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "HH:mm") : String(v || "");
@@ -728,7 +733,7 @@ function handleRequestEdit(payload) {
     // Resolve the shift in the ledger BEFORE touching the requests sheet. If the
     // submissionId isn't there (e.g. the shift was deleted), reject the request
     // up-front instead of writing a phantom row that approval will always fail.
-    const tz = ss.getSpreadsheetTimeZone();
+    const tz = TZ;
     let shiftDate = "", shiftTime = "", found = false;
     const ledger = ss.getSheets()[0];
     const lastRow = ledger.getLastRow();
@@ -784,7 +789,7 @@ function handleListRequests(payload) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return jsonResponse({ ok: true, requests: [] });
 
-  const tz = ss.getSpreadsheetTimeZone();
+  const tz = TZ;
   const asDateStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "yyyy-MM-dd") : String(v || "");
   const asTimeStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "HH:mm") : String(v || "");
   const asStampStr = (v) => (v instanceof Date) ? Utilities.formatDate(v, tz, "yyyy-MM-dd HH:mm") : String(v || "");
@@ -842,7 +847,7 @@ function handleResolveRequest(payload) {
     const row = data[rowIdx - 2];
     if (String(row[6] || "") !== "Pending") return jsonResponse({ ok: false, error: "Request already resolved" });
 
-    const tz = ss.getSpreadsheetTimeZone();
+    const tz = TZ;
     // Rollback bookkeeping for the approve path; consulted in the status-write
     // catch below so we can put the ledger back if marking the request fails.
     let ledger = null, sid = "";
@@ -1252,7 +1257,7 @@ function doPost(e) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheets()[0];
-    const tz = ss.getSpreadsheetTimeZone();
+    const tz = TZ;
 
     const existing = findRowsBySubmissionId(sheet, payload.submissionId);
     if (existing.length) {
@@ -1332,7 +1337,7 @@ function doPost(e) {
 // the web app needs.
 function setupSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  ss.setSpreadsheetTimeZone("America/Los_Angeles");
+  ss.setSpreadsheetTimeZone(TZ);
   const sheet = ss.getSheets()[0];
   sheet.clear();
   const header = [
