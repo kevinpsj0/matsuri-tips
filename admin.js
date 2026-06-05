@@ -26,6 +26,7 @@ let slotsEdit = null;        // deep-clone working copy the Settings slot editor
 // locale() (Intl locale for the chosen language) is shared from i18n.js.
 let calMonth = null; // { y, m } 1-based month
 let calDay = null;   // ISO date when drilled into a single day, else null
+let editingStaff = null; // name currently being renamed in the staff manager
 
 // ---- date helpers (operate on yyyy-mm-dd strings; ISO sorts lexically) ----
 function todayISO() {
@@ -193,6 +194,29 @@ async function setStaffActive(name, active) {
   } finally { actionBusy = false; }
 }
 
+async function renameStaff(oldName, newName) {
+  if (actionBusy) return;
+  newName = (newName || "").trim();
+  if (!newName) return;
+  if (oldName.toLowerCase() !== newName.toLowerCase()) {
+    const clash = staffList.find(function (s) { return s.name.toLowerCase() === newName.toLowerCase(); });
+    if (clash && !window.confirm(t("rename_merge_confirm", { old: oldName, new: newName }))) return;
+  }
+  actionBusy = true;
+  try {
+    const res = await fetch(ENDPOINT_URL, {
+      method: "POST", mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "renameStaff", pin: sessionPin, oldName: oldName, newName: newName }),
+    });
+    const data = await res.json();
+    if (!data || !data.ok) { window.alert((data && data.error) || t("could_not_rename")); return; }
+    await refresh();
+  } catch (e) {
+    window.alert(t("network_retry"));
+  } finally { actionBusy = false; }
+}
+
 async function setStaffTrainee(name, traineePct) {
   if (actionBusy) return;
   actionBusy = true;
@@ -251,6 +275,7 @@ async function resolveRequest(rid, resolution) {
 function focusPin() { try { pinInput.focus(); } catch (e) {} }
 
 async function refresh() {
+  editingStaff = null;
   const view = document.getElementById("view");
   view.innerHTML = `<div class="loading">${escapeHtml(t("loading"))}</div>`;
   try {
@@ -619,18 +644,30 @@ function renderStaffManager() {
   const isChef = (s) => s.role === "Chef";
   // showRole tags chefs with a suffix; only needed where roles are mixed (the
   // inactive list). Active staff are split into labeled Servers/Chefs groups.
-  const row = (s, label, action, showRole) => `<div class="staff-row${s.active ? "" : " inactive"}">
+  const renameEditor = (s) => `<div class="staff-rename">
+    <input type="text" id="staff-rename-input" value="${escapeHtml(s.name)}" maxlength="40" autocomplete="off" />
+    <button type="button" class="staff-btn" data-rename-save="${escapeHtml(s.name)}">${escapeHtml(t("save"))}</button>
+    <button type="button" class="staff-btn" data-rename-cancel="1">${escapeHtml(t("cancel"))}</button>
+  </div>`;
+  const editing = (s) => editingStaff != null && editingStaff.toLowerCase() === s.name.toLowerCase();
+  const row = (s, label, action, showRole) => editing(s)
+    ? `<div class="staff-row">${renameEditor(s)}</div>`
+    : `<div class="staff-row${s.active ? "" : " inactive"}">
     <span class="staff-name">${escapeHtml(s.name)}${showRole && isChef(s) ? " " + escapeHtml(t("chef_suffix")) : ""}</span>
-    <button type="button" class="staff-btn" data-staff-action="${action}" data-staff-name="${escapeHtml(s.name)}">${escapeHtml(label)}</button>
+    <span class="staff-actions">${s.active ? `<button type="button" class="staff-btn" data-rename-name="${escapeHtml(s.name)}">${escapeHtml(t("rename"))}</button>` : ""}<button type="button" class="staff-btn" data-staff-action="${action}" data-staff-name="${escapeHtml(s.name)}">${escapeHtml(label)}</button></span>
   </div>`;
   // Active servers also get a Trainee toggle; when on, a 25/50/75 selector.
   const pctBtn = (s, v) => `<button type="button" class="trainee-pct${s.traineePct === v ? " selected" : ""}" data-trainee-pct="${v}" data-staff-name="${escapeHtml(s.name)}">${v}%</button>`;
   const serverRow = (s) => {
+    if (editing(s)) return `<div class="staff-row staff-server">${renameEditor(s)}</div>`;
     const isTrainee = s.traineePct === 25 || s.traineePct === 50 || s.traineePct === 75;
     return `<div class="staff-row staff-server">
       <div class="staff-server-top">
         <span class="staff-name">${escapeHtml(s.name)}</span>
-        <button type="button" class="staff-btn" data-staff-action="inactivate" data-staff-name="${escapeHtml(s.name)}">${escapeHtml(t("inactivate"))}</button>
+        <span class="staff-actions">
+          <button type="button" class="staff-btn" data-rename-name="${escapeHtml(s.name)}">${escapeHtml(t("rename"))}</button>
+          <button type="button" class="staff-btn" data-staff-action="inactivate" data-staff-name="${escapeHtml(s.name)}">${escapeHtml(t("inactivate"))}</button>
+        </span>
       </div>
       <div class="staff-trainee">
         <label class="set-switch sm"><input type="checkbox" class="staff-trainee-cb" data-staff-name="${escapeHtml(s.name)}"${isTrainee ? " checked" : ""}><span class="set-slider"></span></label>
@@ -959,7 +996,7 @@ function wireEvents() {
 
   document.getElementById("refresh-btn").addEventListener("click", refresh);
   document.getElementById("signout-btn").addEventListener("click", signOut);
-  document.getElementById("settings-btn").addEventListener("click", () => { activeTab = "settings"; calDay = null; render(); });
+  document.getElementById("settings-btn").addEventListener("click", () => { activeTab = "settings"; calDay = null; editingStaff = null; render(); });
 
   document.getElementById("periods").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-period]");
@@ -984,6 +1021,7 @@ function wireEvents() {
     if (!btn) return;
     activeTab = btn.dataset.tab;
     calDay = null;
+    editingStaff = null;
     render();
   });
 
@@ -1027,6 +1065,15 @@ function wireEvents() {
       setStaffActive(name, action === "activate");
       return;
     }
+    const renameBtn = e.target.closest("[data-rename-name]");
+    if (renameBtn) { editingStaff = renameBtn.dataset.renameName; render(); return; }
+    if (e.target.closest("[data-rename-cancel]")) { editingStaff = null; render(); return; }
+    const renameSave = e.target.closest("[data-rename-save]");
+    if (renameSave) {
+      const input = document.getElementById("staff-rename-input");
+      renameStaff(renameSave.dataset.renameSave, input ? input.value : "");
+      return;
+    }
     // Settings: slot editor (commit visible inputs before any structural re-render).
     if (e.target.closest("#set-slots-save")) { saveSlots(); return; }
     const addBtn = e.target.closest(".slot-add");
@@ -1040,6 +1087,10 @@ function wireEvents() {
       const roleSel = document.getElementById("staff-add-role");
       const name = e.target.value.trim();
       if (name) addStaff(name, roleSel ? roleSel.value : "Server");
+    }
+    if (e.target && e.target.id === "staff-rename-input" && e.key === "Enter") {
+      const saveBtn = document.querySelector("[data-rename-save]");
+      if (saveBtn) renameStaff(saveBtn.dataset.renameSave, e.target.value);
     }
   });
 
