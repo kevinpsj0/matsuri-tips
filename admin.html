@@ -262,10 +262,10 @@
 
   .slot-group { margin: .5rem 0; }
   .slot-group-h { font-weight: 600; font-size: .85rem; margin: .5rem 0 .3rem; }
-  .slot-row { display: flex; align-items: center; gap: .4rem; margin-bottom: .35rem; }
-  .slot-row input[type=time] { flex: 0 0 auto; padding: .35rem; border: 1px solid #ccc; border-radius: 6px; font: inherit; }
+  .slot-row { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-bottom: .5rem; }
+  .slot-row input[type=time] { flex: 1 1 5rem; min-width: 0; max-width: 9rem; padding: .35rem; border: 1px solid #ccc; border-radius: 6px; font: inherit; }
   .slot-dash { color: var(--muted); }
-  .slot-preview { color: var(--muted); font-size: .82rem; flex: 1; }
+  .slot-preview { flex: 1 1 100%; color: var(--muted); font-size: .82rem; }
   .slot-remove { border: 0; background: transparent; color: #b00; font-size: 1.15rem; line-height: 1; cursor: pointer; padding: 0 .35rem; }
   .slot-remove:disabled { opacity: .35; cursor: default; }
   .slot-add { border: 1px dashed #999; background: #fff; padding: .35rem .6rem; border-radius: 6px; cursor: pointer; font-size: .82rem; }
