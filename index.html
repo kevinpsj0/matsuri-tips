@@ -105,6 +105,15 @@
   .lang-toggle { display: flex; gap: 2px; background: rgba(255,255,255,0.16); border-radius: 8px; padding: 2px; flex: none; }
   .lang-toggle button { border: 0; background: transparent; color: #fff; font-size: .72rem; padding: .3rem .45rem; border-radius: 6px; cursor: pointer; white-space: nowrap; }
   .lang-toggle button.active { background: #fff; color: var(--brand); font-weight: 700; }
+  .a2hs {
+    display: flex; align-items: flex-start; gap: .6rem;
+    margin: 1.25rem 0 0; padding: .8rem .9rem;
+    background: #fff; border: 1px solid var(--gold); border-radius: 10px;
+    color: var(--ink); font-size: .9rem; line-height: 1.35;
+  }
+  .a2hs-icon { flex: none; width: 20px; height: 20px; color: var(--brand); margin-top: 1px; }
+  .a2hs-text { flex: 1; }
+  .a2hs-close { flex: none; border: 0; background: transparent; color: var(--muted); font-size: 1.2rem; line-height: 1; cursor: pointer; padding: .1rem .25rem; }
 </style>
 </head>
 <body>
@@ -116,6 +125,7 @@
     <button type="button" data-lang="en">EN</button>
     <button type="button" data-lang="ko">한국어</button>
   </div>
+  <a class="view-today hidden" id="admin-link" href="admin.html">&larr; <span data-i18n="admin_link">Admin</span></a>
   <a class="view-today" href="today.html"><span data-i18n="today_link">Today</span> &rarr;</a>
 </header>
 
@@ -149,6 +159,14 @@
   </div>
 
   <div class="preview hidden" id="preview" aria-live="polite"></div>
+
+  <div class="a2hs hidden" id="a2hs-hint">
+    <svg class="a2hs-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7"/>
+    </svg>
+    <span class="a2hs-text" data-i18n="a2hs_hint">Add this app to your Home Screen.</span>
+    <button type="button" class="a2hs-close" id="a2hs-close" data-i18n-aria="a2hs_dismiss" aria-label="Dismiss">&times;</button>
+  </div>
 
   <div class="submit-bar">
     <button type="submit" class="submit-btn" id="submit-btn" data-i18n="submit">Submit shift</button>
@@ -575,6 +593,11 @@ populateNameSelect(enteredByEl);
 wireNameField(enteredByEl, enteredByOtherEl);
 applyStaticI18n();
 updateLangButtons();
+// Reveal the "back to admin" link only when arriving from the admin app.
+if (new URLSearchParams(location.search).get("from") === "admin") {
+  var adminLink = document.getElementById("admin-link");
+  if (adminLink) adminLink.classList.remove("hidden");
+}
 renderShiftToggle();
 loadCachedConfig(); // seed slots/kitchen %/showSplit before the first dropdown is built
 addPerson();
@@ -787,6 +810,28 @@ form.addEventListener("submit", (e) => {
   e.preventDefault();
   submitShift();
 });
+
+// ---- iOS "Add to Home Screen" hint ----
+// iOS Safari wipes a site's localStorage (remembered name, offline queue) after
+// 7 days unused; apps launched from the home screen are exempt. Nudge iPhone
+// users to install, once, until they dismiss it or it's already installed.
+const A2HS_KEY = "matsuri_a2hs_dismissed";
+function isIOS() { return /iphone|ipad|ipod/i.test(navigator.userAgent || ""); }
+function isStandalone() {
+  return navigator.standalone === true ||
+    (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+}
+function maybeShowA2HS() {
+  let dismissed = false;
+  try { dismissed = localStorage.getItem(A2HS_KEY) === "1"; } catch (e) {}
+  if (!isIOS() || isStandalone() || dismissed) return;
+  document.getElementById("a2hs-hint").classList.remove("hidden");
+}
+document.getElementById("a2hs-close").addEventListener("click", () => {
+  document.getElementById("a2hs-hint").classList.add("hidden");
+  try { localStorage.setItem(A2HS_KEY, "1"); } catch (e) {}
+});
+maybeShowA2HS();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {

@@ -28,6 +28,7 @@ var I18N = {
     // entry app
     entry_title: "Shift Tip Entry",
     today_link: "Today",
+    admin_link: "Admin",
     your_name: "Your name",
     not_me: "Not {name}?",
     shift_label: "Shift",
@@ -231,6 +232,7 @@ var I18N = {
     // entry app
     entry_title: "팁 입력",
     today_link: "오늘",
+    admin_link: "관리",
     your_name: "이름",
     not_me: "{name}님이 아니신가요?",
     shift_label: "시프트",
