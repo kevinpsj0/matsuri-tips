@@ -412,8 +412,8 @@ function applyRosterTrainees(servers) {
 
 // ---- payouts ----
 // Tips accrue per person in the ledger; the owner pays them out periodically.
-// Owed = all-time earned (Server/Trainee/Chef, never the Kitchen fund) minus
-// all-time paid. Payouts are an append-only log in a "Payouts" sheet.
+// Owed = all-time earned by servers/trainees (chefs and the Kitchen fund are
+// excluded) minus all-time paid. Payouts are an append-only log in a "Payouts" sheet.
 function getOrCreatePayoutsSheet(ss) {
   let sheet = ss.getSheetByName("Payouts");
   if (!sheet) {
@@ -461,7 +461,7 @@ function computeOwedCents(ss) {
     const vals = ledger.getRange(2, 1, lastRow - 1, NUM_COLS).getValues();
     for (const r of vals) {
       const role = String(r[COL.ROLE - 1] || "");
-      if (role !== "Server" && role !== "Trainee" && role !== "Chef") continue; // Kitchen fund excluded
+      if (role !== "Server" && role !== "Trainee") continue; // servers/trainees only (chefs + kitchen excluded)
       const name = String(r[COL.RECIPIENT - 1] || "").trim();
       if (!name) continue;
       const key = name.toLowerCase();

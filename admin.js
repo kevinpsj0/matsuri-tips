@@ -680,12 +680,12 @@ function renderPeople(rows) {
 function emptyState(msg) { return `<div class="empty-state">${escapeHtml(msg)}</div>`; }
 
 // ---- payouts ----
-// Owed = all-time earned (Server/Trainee/Chef, not the Kitchen fund) minus
-// all-time paid out. Integer cents avoid float drift; mirrors the backend.
+// Owed = all-time earned by servers/trainees (chefs and the Kitchen fund are
+// excluded) minus all-time paid out. Integer cents avoid float drift; mirrors the backend.
 function computeOwed() {
   const earned = {};
   for (const r of allRows) {
-    if (r.role !== "Server" && r.role !== "Trainee" && r.role !== "Chef") continue;
+    if (r.role !== "Server" && r.role !== "Trainee") continue;
     const name = (r.recipient || "").trim();
     if (!name) continue;
     const key = name.toLowerCase();
