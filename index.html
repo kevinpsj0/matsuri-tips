@@ -246,6 +246,8 @@ let currentShift = nowPTMinutes() < (18 * 60 + 30) ? "lunch" : "dinner";
 let chefRoster = []; // [{name}] from the staff roster (role=Chef)
 let todayShifts = { lunch: false, dinner: false }; // which shifts are already entered today
 let showSplit = false; // fail-closed: hidden until config (cache or fetch) says otherwise
+// Opened from the admin app (via the + button): always reveal the split, ignoring the global toggle.
+const fromAdmin = new URLSearchParams(location.search).get("from") === "admin";
 const CONFIG_KEY = "matsuri_config_v1";
 const CONFIG_CACHE_VERSION = 1;
 
@@ -508,7 +510,7 @@ function updatePreview() {
     return;
   }
   previewEl.classList.remove("hidden");
-  if (!showSplit) {
+  if (!showSplit && !fromAdmin) {
     previewEl.innerHTML = `<div class="preview-row"><span>${escapeHtml(t("split_hidden_ready"))}</span></div>`;
     return;
   }
@@ -595,7 +597,7 @@ applyStaticI18n();
 updateLangButtons();
 // When arriving from the admin app, swap the "Today" link for a "back to admin"
 // link rather than showing both (keeps the header from overflowing).
-if (new URLSearchParams(location.search).get("from") === "admin") {
+if (fromAdmin) {
   var adminLink = document.getElementById("admin-link");
   var todayLink = document.getElementById("today-link");
   if (adminLink) adminLink.classList.remove("hidden");
@@ -733,7 +735,7 @@ function todayDateStr() {
 
 function renderConfirmation(response) {
   const splits = response.splits;
-  const reveal = (typeof response.showSplit === "boolean") ? response.showSplit : showSplit;
+  const reveal = fromAdmin || ((typeof response.showSplit === "boolean") ? response.showSplit : showSplit);
   const heading = response.offline
     ? `<div>${escapeHtml(t("offline_saved"))}</div>`
     : `<strong>${escapeHtml(response.dedup ? t("prev_recorded") : t("shift_recorded"))}</strong>`;
