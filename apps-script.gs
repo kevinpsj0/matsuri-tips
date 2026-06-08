@@ -930,7 +930,7 @@ function applyShiftEdit(ss, sid, proposed, tz) {
     const d2 = ldata[i][COL.DATE - 1];
     const ds2 = (d2 instanceof Date) ? Utilities.formatDate(d2, tz, "yyyy-MM-dd") : String(d2 || "");
     if (ds2 === preservedDate && String(ldata[i][COL.SHIFT - 1] || "") === shiftLabel) {
-      return { ok: false, retryable: false, error: "Approving this would create a second " + shiftLabel + " shift for " + preservedDate + "." };
+      return { ok: false, retryable: false, error: "This would create a second " + shiftLabel + " shift for " + preservedDate + "." };
     }
   }
 
@@ -994,6 +994,80 @@ function applyShiftEdit(ss, sid, proposed, tz) {
     rowCount: newRows.length,
     savedRows: savedRows,
   };
+}
+
+// Admin direct edit: apply a proposed shift to the ledger immediately (no
+// request/approve roundtrip) and log an audit row. PIN protected.
+function handleAdminEditShift(payload) {
+  const storedPin = PropertiesService.getScriptProperties().getProperty("ADMIN_PIN");
+  if (!storedPin) return jsonResponse({ ok: false, error: "Admin access is not configured yet." });
+  if (typeof payload.pin !== "string" || payload.pin !== storedPin) {
+    Utilities.sleep(1000);
+    return jsonResponse({ ok: false, error: "Wrong PIN." });
+  }
+  const sid = typeof payload.submissionId === "string" ? payload.submissionId.trim() : "";
+  if (!sid || sid.length > 64) return jsonResponse({ ok: false, error: "Invalid submissionId" });
+
+  // Same prep as the approve path: active slots/kitchen %, roster trainee levels,
+  // then field validation (returns an errorCode for unknown_slot).
+  configure({ slots: getSlots(), kitchenPct: getKitchenPct() });
+  const proposed = payload.proposed;
+  if (proposed && typeof proposed === "object") applyRosterTrainees(proposed.servers);
+  const validation = validateShiftFields(proposed);
+  if (validation) return validationResponse(validation);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return jsonResponse({ ok: false, retryable: true, error: "Busy, try again." });
+  try {
+    const tz = TZ;
+    const editRes = applyShiftEdit(ss, sid, proposed, tz);
+    if (!editRes.ok) return jsonResponse({ ok: false, retryable: editRes.retryable, error: editRes.error });
+
+    const nowStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm");
+
+    // Audit row in the Edit-requests sheet, pre-resolved as "Admin edit" so it
+    // shows in history but is never returned by handleListRequests (Pending only).
+    try {
+      const sheet = getOrCreateRequestsSheet(ss);
+      const cleanProposed = {
+        shiftType: proposed.shiftType,
+        enteredBy: String(proposed.enteredBy).trim(),
+        totalTips: Number(proposed.totalTips),
+        servers: proposed.servers.map(function (s) {
+          const trainee = !!s.trainee;
+          return { name: String(s.name).trim(), slot: String(s.slot), trainee: trainee, pct: trainee ? Number(s.pct) : null };
+        }),
+        chefs: proposed.chefs.map(function (c) { return { name: String(c.name).trim() }; }),
+      };
+      const reqId = "ae-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+      sheet.appendRow([reqId, nowStr, "admin", safeText(sid), editRes.date, editRes.time, "Admin edit", "", JSON.stringify(cleanProposed), nowStr, "admin"]);
+    } catch (e) { /* best effort: the ledger edit already succeeded */ }
+
+    // Supersede any pending staff requests for this shift; they are now stale and
+    // approving one later would clobber this edit. Best-effort, per-row isolated.
+    try {
+      const reqSheet = ss.getSheetByName("Edit requests");
+      const freshLast = reqSheet ? reqSheet.getLastRow() : 0;
+      const sweep = (freshLast >= 2) ? reqSheet.getRange(2, 1, freshLast - 1, EDIT_REQ_HEADER.length).getValues() : [];
+      for (let i = 0; i < sweep.length; i++) {
+        const r = sweep[i];
+        if (String(r[6] || "") !== "Pending") continue;
+        if (String(r[3] || "") !== sid) continue;
+        try {
+          const keepO = reqSheet.getRange(i + 2, 8, 1, 2).getValues()[0];
+          reqSheet.getRange(i + 2, 7, 1, 5).setValues([["Superseded", keepO[0], keepO[1], nowStr, "admin (auto)"]]);
+        } catch (e) { /* best effort */ }
+      }
+    } catch (e) { /* best effort */ }
+
+    try { recolorShifts(); } catch (e) { /* shading is cosmetic */ }
+    return jsonResponse({ ok: true });
+  } catch (err) {
+    return jsonResponse({ ok: false, retryable: true, error: String(err && err.message || err) });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // Admin write path: approve (apply the proposed shift to the ledger) or deny.
@@ -1307,6 +1381,9 @@ function doPost(e) {
   }
   if (payload && payload.action === "resolveRequest") {
     return handleResolveRequest(payload);
+  }
+  if (payload && payload.action === "adminEditShift") {
+    return handleAdminEditShift(payload);
   }
   if (payload && payload.action === "addStaff") {
     return handleAddStaff(payload);
