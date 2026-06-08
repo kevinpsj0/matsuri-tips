@@ -619,7 +619,7 @@ function renderCalDayDetail(iso) {
   const { y, m, d } = isoParts(iso);
   const title = new Date(y, m - 1, d).toLocaleDateString(locale(), { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   const rows = allRows.filter((r) => r.date === iso);
-  const body = rows.length ? shiftCardsHtml(rows) : `<div class="empty-state">${escapeHtml(t("no_shifts_day"))}</div>`;
+  const body = rows.length ? shiftCardsHtml(rows, true) : `<div class="empty-state">${escapeHtml(t("no_shifts_day"))}</div>`;
   return `<div class="cal-head">
       <button type="button" data-cal-back>&lsaquo; ${escapeHtml(t("cal_back"))}</button>
       <span class="m">${escapeHtml(title)}</span>
@@ -642,11 +642,11 @@ function fmtClock(mins) {
   return hh + (m ? ":" + String(m).padStart(2, "0") : "") + ap;
 }
 
-function shiftCardsHtml(rows) {
+function shiftCardsHtml(rows, editable) {
   const shifts = {};
   for (const r of rows) {
     const id = r.submissionId || (r.date + r.time);
-    if (!shifts[id]) shifts[id] = { date: r.date, time: r.time, enteredBy: r.enteredBy, totalTips: r.totalTips, recipients: [] };
+    if (!shifts[id]) shifts[id] = { id: id, date: r.date, time: r.time, enteredBy: r.enteredBy, totalTips: r.totalTips, recipients: [] };
     shifts[id].recipients.push(r);
   }
   const list = Object.values(shifts).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
@@ -686,11 +686,12 @@ function shiftCardsHtml(rows) {
     const chefSummary = chefsR.map((c) => `${escapeHtml(c.recipient || t("role_chef"))} ${fmt(c.amount)}`).join("  ·  ");
     const fixedSummary = fixed.map((f) => `${escapeHtml(t("kitchen"))} ${fmt(f.amount)}`).join("  ·  ");
     const shiftTag = sh.recipients[0] && sh.recipients[0].shift ? escapeHtml(localizeShiftName(sh.recipients[0].shift)) + " · " : "";
+    const editBtn = editable ? `<button type="button" class="card-edit-btn" data-edit-sid="${escapeHtml(sh.id)}">${escapeHtml(t("edit_shift"))}</button>` : "";
 
     return `<div class="shift">
       <div class="top">
         <span class="when">${shiftTag}${escapeHtml(sh.date)} ${escapeHtml(sh.time)}</span>
-        <span class="tot">${fmt(sh.totalTips)}</span>
+        <span class="top-right"><span class="tot">${fmt(sh.totalTips)}</span>${editBtn}</span>
       </div>
       <div class="by">${escapeHtml(t("entered_by_prefix"))}${escapeHtml(sh.enteredBy || "?")}</div>
       ${axisHtml}
@@ -703,7 +704,7 @@ function shiftCardsHtml(rows) {
 
 function renderShifts(rows) {
   if (!rows.length) return emptyState(t("no_shifts_period"));
-  return `<div>${shiftCardsHtml(rows)}</div>`;
+  return `<div>${shiftCardsHtml(rows, true)}</div>`;
 }
 
 function renderStaffManager() {
@@ -1103,6 +1104,8 @@ function wireEvents() {
     if (e.target.closest("[data-cal-back]")) { calDay = null; render(); return; }
     const cell = e.target.closest(".cal-cell[data-day]");
     if (cell) { calDay = cell.getAttribute("data-day"); render(); return; }
+    const cardEdit = e.target.closest("[data-edit-sid]");
+    if (cardEdit && cardEdit.dataset.editSid) { openShiftModal(cardEdit.dataset.editSid); openShiftEdit(); return; }
     const dlbar = e.target.closest("[data-sid]");
     if (dlbar && dlbar.dataset.sid) { openShiftModal(dlbar.dataset.sid); return; }
     const resolveBtn = e.target.closest("[data-resolve]");
