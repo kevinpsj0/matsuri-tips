@@ -455,13 +455,18 @@ function ensureEditForm() {
   return editForm;
 }
 
+// Toggle the shift modal between read-only view (on=false) and the edit form (on=true).
+function showShiftEdit(on) {
+  document.getElementById("shift-edit-wrap").classList.toggle("hidden", !on);
+  document.getElementById("shift-view-actions").classList.toggle("hidden", on);
+}
+
 function openShiftModal(sid) {
   const shiftRows = allRows.filter((r) => (r.submissionId || (r.date + r.time)) === sid);
   if (!shiftRows.length) return;
   editingSid = sid;
   document.getElementById("modal-body").innerHTML = shiftCardsHtml(shiftRows);
-  document.getElementById("shift-edit-wrap").classList.add("hidden");
-  document.getElementById("shift-view-actions").classList.remove("hidden");
+  showShiftEdit(false);
   document.getElementById("shift-modal").classList.remove("hidden");
 }
 
@@ -476,8 +481,7 @@ function openShiftEdit() {
   document.getElementById("shift-edit-err").textContent = "";
   const retimed = form.render(shiftRowsToModel(rows), chefRoster);
   if (retimed) document.getElementById("shift-edit-err").textContent = t("slot_retimed_hint");
-  document.getElementById("shift-view-actions").classList.add("hidden");
-  document.getElementById("shift-edit-wrap").classList.remove("hidden");
+  showShiftEdit(true);
 }
 
 async function saveShiftEdit() {
@@ -502,12 +506,7 @@ async function saveShiftEdit() {
     document.getElementById("shift-modal").classList.add("hidden");
     editingSid = null;
     window.alert(t("admin_edit_saved"));
-    const refreshed = await fetchData(sessionPin);
-    if (refreshed && refreshed.ok) {
-      allRows = refreshed.rows || []; staffList = refreshed.staff || []; payoutList = refreshed.payouts || [];
-      mirrorConfig(refreshed.config);
-      render();
-    }
+    await refresh(); // re-fetch + re-render through the canonical reload path
   } catch (err) {
     errEl.textContent = (err && err.message) || t("network_retry");
   } finally {
@@ -1176,11 +1175,7 @@ function wireEvents() {
       return;
     }
     if (e.target.closest("#shift-edit-btn")) { openShiftEdit(); return; }
-    if (e.target.closest("#shift-edit-cancel")) {
-      document.getElementById("shift-edit-wrap").classList.add("hidden");
-      document.getElementById("shift-view-actions").classList.remove("hidden");
-      return;
-    }
+    if (e.target.closest("#shift-edit-cancel")) { showShiftEdit(false); return; }
     if (e.target.closest("#shift-edit-save")) { saveShiftEdit(); return; }
   });
 

@@ -782,6 +782,45 @@ function getOrCreateRequestsSheet(ss) {
   throw new Error('"Edit requests" tab header is not "Request ID". Migrate manually before submitting new requests.');
 }
 
+// Re-build a proposed shift from only the validated fields so an oversized or
+// adversarial payload can't bloat the JSON cell or smuggle extra keys. Shared by
+// the staff request path and the admin direct-edit path.
+function sanitizeProposed(p) {
+  return {
+    shiftType: p.shiftType,
+    enteredBy: String(p.enteredBy).trim(),
+    totalTips: Number(p.totalTips),
+    servers: p.servers.map(function (s) {
+      const trainee = !!s.trainee;
+      return { name: String(s.name).trim(), slot: String(s.slot), trainee: trainee, pct: trainee ? Number(s.pct) : null };
+    }),
+    chefs: p.chefs.map(function (c) { return { name: String(c.name).trim() }; }),
+  };
+}
+
+// Mark every OTHER Pending request for this shift as Superseded. Used after a
+// shift's ledger rows change (approve or admin direct edit) so a stale proposal
+// can't later overwrite the new data. Re-reads fresh because handleRequestEdit
+// doesn't hold the lock, so rows may have appended during the lock window.
+// Best-effort: per-row writes are isolated. Pass exceptRowIdx (1-based sheet row)
+// to skip the request being resolved; omit it for the admin edit (no own row).
+function supersedePendingForShift(reqSheet, sid, nowStr, exceptRowIdx) {
+  const freshLast = reqSheet ? reqSheet.getLastRow() : 0;
+  if (freshLast < 2) return;
+  const sweep = reqSheet.getRange(2, 1, freshLast - 1, EDIT_REQ_HEADER.length).getValues();
+  for (let i = 0; i < sweep.length; i++) {
+    const row = i + 2;
+    if (row === exceptRowIdx) continue;
+    const r = sweep[i];
+    if (String(r[6] || "") !== "Pending") continue;
+    if (String(r[3] || "") !== sid) continue;
+    try {
+      // r[7]=Note, r[8]=Proposed JSON from the fresh bulk read above; preserve them.
+      reqSheet.getRange(row, 7, 1, 5).setValues([["Superseded", r[7], r[8], nowStr, "admin (auto)"]]);
+    } catch (e) { /* best effort */ }
+  }
+}
+
 // Write path for the staff verification page: logs a request-to-edit (with the
 // proposed full shift payload + optional note) to the "Edit requests" tab.
 function handleRequestEdit(payload) {
@@ -827,18 +866,7 @@ function handleRequestEdit(payload) {
     if (!found) return jsonResponse({ ok: false, error: "That shift is no longer in the ledger. Tap Refresh and try again." });
 
     const sheet = getOrCreateRequestsSheet(ss);
-    // Re-build proposed from only the validated fields so an oversized or
-    // adversarial payload can't bloat the JSON cell or smuggle extra keys.
-    const cleanProposed = {
-      shiftType: payload.proposed.shiftType,
-      enteredBy: String(payload.proposed.enteredBy).trim(),
-      totalTips: Number(payload.proposed.totalTips),
-      servers: payload.proposed.servers.map(function (s) {
-        const trainee = !!s.trainee;
-        return { name: String(s.name).trim(), slot: String(s.slot), trainee: trainee, pct: trainee ? Number(s.pct) : null };
-      }),
-      chefs: payload.proposed.chefs.map(function (c) { return { name: String(c.name).trim() }; }),
-    };
+    const cleanProposed = sanitizeProposed(payload.proposed);
     const reqId = "er-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
     const now = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm");
     sheet.appendRow([reqId, now, safeText(by), safeText(sid), shiftDate, shiftTime, "Pending", safeText(note), JSON.stringify(cleanProposed), "", ""]);
@@ -1026,40 +1054,20 @@ function handleAdminEditShift(payload) {
 
     const nowStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm");
 
-    // Audit row in the Edit-requests sheet, pre-resolved as "Admin edit" so it
+    // Audit row in the "Edit requests" sheet, pre-resolved as "Admin edit" so it
     // shows in history but is never returned by handleListRequests (Pending only).
+    // Capture the sheet handle for the supersede sweep below.
+    let reqSheet = null;
     try {
-      const sheet = getOrCreateRequestsSheet(ss);
-      const cleanProposed = {
-        shiftType: proposed.shiftType,
-        enteredBy: String(proposed.enteredBy).trim(),
-        totalTips: Number(proposed.totalTips),
-        servers: proposed.servers.map(function (s) {
-          const trainee = !!s.trainee;
-          return { name: String(s.name).trim(), slot: String(s.slot), trainee: trainee, pct: trainee ? Number(s.pct) : null };
-        }),
-        chefs: proposed.chefs.map(function (c) { return { name: String(c.name).trim() }; }),
-      };
+      reqSheet = getOrCreateRequestsSheet(ss);
+      const cleanProposed = sanitizeProposed(proposed);
       const reqId = "ae-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
-      sheet.appendRow([reqId, nowStr, "admin", safeText(sid), editRes.date, editRes.time, "Admin edit", "", JSON.stringify(cleanProposed), nowStr, "admin"]);
+      reqSheet.appendRow([reqId, nowStr, "admin", safeText(sid), editRes.date, editRes.time, "Admin edit", "", JSON.stringify(cleanProposed), nowStr, "admin"]);
     } catch (e) { /* best effort: the ledger edit already succeeded */ }
 
     // Supersede any pending staff requests for this shift; they are now stale and
-    // approving one later would clobber this edit. Best-effort, per-row isolated.
-    try {
-      const reqSheet = ss.getSheetByName("Edit requests");
-      const freshLast = reqSheet ? reqSheet.getLastRow() : 0;
-      const sweep = (freshLast >= 2) ? reqSheet.getRange(2, 1, freshLast - 1, EDIT_REQ_HEADER.length).getValues() : [];
-      for (let i = 0; i < sweep.length; i++) {
-        const r = sweep[i];
-        if (String(r[6] || "") !== "Pending") continue;
-        if (String(r[3] || "") !== sid) continue;
-        try {
-          const keepO = reqSheet.getRange(i + 2, 8, 1, 2).getValues()[0];
-          reqSheet.getRange(i + 2, 7, 1, 5).setValues([["Superseded", keepO[0], keepO[1], nowStr, "admin (auto)"]]);
-        } catch (e) { /* best effort */ }
-      }
-    } catch (e) { /* best effort */ }
+    // approving one later would clobber this edit. Best-effort.
+    try { supersedePendingForShift(reqSheet, sid, nowStr); } catch (e) { /* best effort */ }
 
     try { recolorShifts(); } catch (e) { /* shading is cosmetic */ }
     return jsonResponse({ ok: true });
@@ -1167,30 +1175,10 @@ function handleResolveRequest(payload) {
       throw statusErr;
     }
     if (resolution === "approve") {
-      // Auto-supersede any OTHER pending requests for the same shift so a
-      // stale proposal from before this approval can't silently overwrite
-      // the ledger changes we just applied. handleRequestEdit doesn't hold
-      // the script lock, so rows may have been appended during this lock
-      // window — re-read fresh instead of trusting the start-of-function
-      // snapshot. Best-effort: per-row writes are isolated so a single
-      // failure can't undo the primary approval.
-      const freshLast = reqSheet.getLastRow();
-      const sweepData = (freshLast >= 2)
-        ? reqSheet.getRange(2, 1, freshLast - 1, EDIT_REQ_HEADER.length).getValues()
-        : [];
-      for (let i = 0; i < sweepData.length; i++) {
-        if (i + 2 === rowIdx) continue;
-        const r = sweepData[i];
-        if (String(r[6] || "") !== "Pending") continue;
-        if (String(r[3] || "") !== sid) continue;
-        const otherRow = i + 2;
-        try {
-          const keepO = reqSheet.getRange(otherRow, 8, 1, 2).getValues()[0];
-          reqSheet.getRange(otherRow, 7, 1, 5).setValues([[
-            "Superseded", keepO[0], keepO[1], nowStr, "admin (auto)",
-          ]]);
-        } catch (e) { /* best effort */ }
-      }
+      // Auto-supersede any OTHER pending requests for the same shift so a stale
+      // proposal from before this approval can't silently overwrite the ledger
+      // changes we just applied. Skip this request's own row.
+      supersedePendingForShift(reqSheet, sid, nowStr, rowIdx);
       try { recolorShifts(); } catch (e) { /* shading is cosmetic; don't fail the approval */ }
     }
     return jsonResponse({ ok: true });
