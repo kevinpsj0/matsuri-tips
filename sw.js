@@ -40,7 +40,7 @@ self.addEventListener("fetch", (e) => {
   if (url.origin !== location.origin) return;
 
   // Keep the pages and app logic fresh when online; fall back to cache offline.
-  const freshFirst = req.mode === "navigate" || url.pathname.endsWith("/calc.js") || url.pathname.endsWith("/admin.js") || url.pathname.endsWith("/i18n.js");
+  const freshFirst = req.mode === "navigate" || url.pathname.endsWith("/calc.js") || url.pathname.endsWith("/admin.js") || url.pathname.endsWith("/i18n.js") || url.pathname.endsWith("/editform.js");
   if (freshFirst) {
     e.respondWith(
       fetch(req, { cache: "reload" }) // bypass the HTTP cache so updates aren't masked by it
