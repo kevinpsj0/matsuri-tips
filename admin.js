@@ -10,6 +10,8 @@ const fmt = (n) => money.format(n || 0);
 
 let sessionPin = "";
 let allRows = [];
+let editForm = null;       // created lazily after editFormFieldsHtml() is injected
+let editingSid = null;     // submissionId currently being edited in the shift modal
 let staffList = []; // [{ name, active }] from handleFetchData
 let payoutList = []; // [{ date, name, amount }] payout log from handleFetchData
 let pendingRequests = [];
@@ -442,11 +444,75 @@ function dayTimelineHtml(rows) {
   return `<div class="day-combined">${segs}</div>`;
 }
 
+// Lazily inject the shared edit fields + build the controller (one-time).
+// Inject the markup BEFORE createEditForm(): the controller binds listeners to
+// #edit-people/#edit-add/#edit-shift at construction, so they must exist first.
+function ensureEditForm() {
+  if (editForm) return editForm;
+  document.getElementById("edit-fields").innerHTML = editFormFieldsHtml();
+  applyStaticI18n(); // translate the freshly injected data-i18n labels
+  editForm = createEditForm();
+  return editForm;
+}
+
 function openShiftModal(sid) {
   const shiftRows = allRows.filter((r) => (r.submissionId || (r.date + r.time)) === sid);
   if (!shiftRows.length) return;
+  editingSid = sid;
   document.getElementById("modal-body").innerHTML = shiftCardsHtml(shiftRows);
+  document.getElementById("shift-edit-wrap").classList.add("hidden");
+  document.getElementById("shift-view-actions").classList.remove("hidden");
   document.getElementById("shift-modal").classList.remove("hidden");
+}
+
+function openShiftEdit() {
+  if (!editingSid) return;
+  const rows = allRows.filter((r) => (r.submissionId || (r.date + r.time)) === editingSid);
+  if (!rows.length) return;
+  const form = ensureEditForm();
+  const chefRoster = staffList.filter((s) => s.role === "Chef").map((s) => ({ name: s.name }));
+  const first = rows[0];
+  document.getElementById("shift-edit-sub").textContent = `${first.date || ""} ${first.time || ""}`;
+  document.getElementById("shift-edit-err").textContent = "";
+  const retimed = form.render(shiftRowsToModel(rows), chefRoster);
+  if (retimed) document.getElementById("shift-edit-err").textContent = t("slot_retimed_hint");
+  document.getElementById("shift-view-actions").classList.add("hidden");
+  document.getElementById("shift-edit-wrap").classList.remove("hidden");
+}
+
+async function saveShiftEdit() {
+  const errEl = document.getElementById("shift-edit-err");
+  const built = ensureEditForm().read();
+  if (built.error) { errEl.textContent = built.error; return; }
+  errEl.textContent = "";
+  const saveBtn = document.getElementById("shift-edit-save");
+  saveBtn.disabled = true; saveBtn.textContent = t("sending");
+  try {
+    const res = await fetch(ENDPOINT_URL, {
+      method: "POST", mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "adminEditShift", pin: sessionPin, submissionId: editingSid, proposed: built.proposed }),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    if (!data.ok) {
+      if (data.errorCode === "unknown_slot") { errEl.textContent = t("slots_changed_refresh"); return; }
+      throw new Error(data.error || "save failed");
+    }
+    document.getElementById("shift-modal").classList.add("hidden");
+    editingSid = null;
+    window.alert(t("admin_edit_saved"));
+    const refreshed = await fetchData(sessionPin);
+    if (refreshed && refreshed.ok) {
+      allRows = refreshed.rows || []; staffList = refreshed.staff || []; payoutList = refreshed.payouts || [];
+      mirrorConfig(refreshed.config);
+      render();
+    }
+  } catch (err) {
+    errEl.textContent = (err && err.message) || t("network_retry");
+  } finally {
+    saveBtn.disabled = false; saveBtn.textContent = t("save_changes");
+  }
 }
 
 // Build recipient-shaped rows from a proposed shift (uses splitShift from calc.js).
@@ -1104,7 +1170,18 @@ function wireEvents() {
 
   const modal = document.getElementById("shift-modal");
   modal.addEventListener("click", (e) => {
-    if (e.target === modal || e.target.closest("#modal-close")) modal.classList.add("hidden");
+    if (e.target === modal || e.target.closest("#modal-close")) {
+      modal.classList.add("hidden");
+      editingSid = null;
+      return;
+    }
+    if (e.target.closest("#shift-edit-btn")) { openShiftEdit(); return; }
+    if (e.target.closest("#shift-edit-cancel")) {
+      document.getElementById("shift-edit-wrap").classList.add("hidden");
+      document.getElementById("shift-view-actions").classList.remove("hidden");
+      return;
+    }
+    if (e.target.closest("#shift-edit-save")) { saveShiftEdit(); return; }
   });
 
   // Tap a timeline bar to show its name, clock-in/out, and duration as a popup.

@@ -399,11 +399,24 @@
   <div class="modal-card">
     <button type="button" class="modal-close" id="modal-close" aria-label="Close">&times;</button>
     <div id="modal-body"></div>
+    <div class="modal-actions" id="shift-view-actions">
+      <button type="button" class="btn-secondary" id="shift-edit-btn" data-i18n="edit_shift">Edit shift</button>
+    </div>
+    <div id="shift-edit-wrap" class="hidden">
+      <div class="sub" id="shift-edit-sub"></div>
+      <div id="edit-fields"></div>
+      <div class="err" id="shift-edit-err"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="shift-edit-cancel" data-i18n="cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="shift-edit-save" data-i18n="save_changes">Save changes</button>
+      </div>
+    </div>
   </div>
 </div>
 
 <script src="i18n.js"></script>
 <script src="calc.js"></script>
+<script src="editform.js"></script>
 <script src="admin.js"></script>
 <script>
 if ("serviceWorker" in navigator) {
