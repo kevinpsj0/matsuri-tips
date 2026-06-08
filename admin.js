@@ -296,6 +296,10 @@ function mirrorConfig(cfg) {
   if (typeof cfg.showSplit === "boolean") showSplitConfig = cfg.showSplit;
   if (typeof cfg.kitchenPct === "number") kitchenPctConfig = cfg.kitchenPct;
   if (cfg.slots) { slotsConfig = cfg.slots; if (activeTab !== "settings") slotsEdit = null; }
+  // Mirror into the calc engine so the shared edit form (which reads SHIFT_SLOTS)
+  // and the request preview (splitShift) use the restaurant's configured slots and
+  // kitchen %, not calc.js defaults.
+  configure({ slots: slotsConfig, kitchenPct: kitchenPctConfig });
 }
 
 function signOut() {
