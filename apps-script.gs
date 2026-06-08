@@ -891,6 +891,111 @@ function handleListRequests(payload) {
   return jsonResponse({ ok: true, requests: requests });
 }
 
+// Rewrite the ledger rows for one shift (submissionId `sid`) to match `proposed`.
+// Caller MUST have already run configure(), applyRosterTrainees(proposed.servers),
+// and validateShiftFields(proposed), and MUST hold the script lock. Returns the
+// rollback handles on success so the caller can undo the write if a later step
+// (e.g. a status update) fails.
+//   success: { ok:true, ledger, date, time, rowStart, rowCount, savedRows }
+//   failure: { ok:false, retryable, error }
+function applyShiftEdit(ss, sid, proposed, tz) {
+  const ledger = ss.getSheets()[0];
+  const lastL = ledger.getLastRow();
+  if (lastL < 2) return { ok: false, retryable: false, error: "Shift not found in ledger" };
+  const ldata = ledger.getRange(2, 1, lastL - 1, NUM_COLS).getValues();
+
+  const targetRowIdxs = [];
+  let preservedDate = "", preservedTime = "";
+  for (let i = 0; i < ldata.length; i++) {
+    if (ldata[i][COL.SUBMISSION_ID - 1] === sid) {
+      targetRowIdxs.push(i + 2);
+      if (!preservedDate) {
+        const d = ldata[i][COL.DATE - 1], t = ldata[i][COL.TIME - 1];
+        preservedDate = (d instanceof Date) ? Utilities.formatDate(d, tz, "yyyy-MM-dd") : String(d || "");
+        preservedTime = (t instanceof Date) ? Utilities.formatDate(t, tz, "HH:mm") : String(t || "");
+      }
+    }
+  }
+  if (!targetRowIdxs.length) return { ok: false, retryable: false, error: "Shift not found in ledger" };
+  const oldStart = Math.min.apply(null, targetRowIdxs);
+  const oldCount = targetRowIdxs.length;
+  if (Math.max.apply(null, targetRowIdxs) - oldStart + 1 !== oldCount) {
+    return { ok: false, retryable: false, error: "Ledger rows for this shift are not contiguous; resolve manually." };
+  }
+
+  const splits = splitShift(proposed);
+  const shiftLabel = proposed.shiftType === "lunch" ? "Lunch" : "Dinner";
+  for (let i = 0; i < ldata.length; i++) {
+    if (ldata[i][COL.SUBMISSION_ID - 1] === sid) continue;
+    const d2 = ldata[i][COL.DATE - 1];
+    const ds2 = (d2 instanceof Date) ? Utilities.formatDate(d2, tz, "yyyy-MM-dd") : String(d2 || "");
+    if (ds2 === preservedDate && String(ldata[i][COL.SHIFT - 1] || "") === shiftLabel) {
+      return { ok: false, retryable: false, error: "Approving this would create a second " + shiftLabel + " shift for " + preservedDate + "." };
+    }
+  }
+
+  const enteredBy = safeText(String(proposed.enteredBy).trim());
+  const newRows = [];
+  function baseRow() {
+    const r = new Array(NUM_COLS).fill("");
+    r[COL.DATE - 1] = preservedDate;
+    r[COL.TIME - 1] = preservedTime;
+    r[COL.SHIFT - 1] = shiftLabel;
+    r[COL.ENTERED_BY - 1] = enteredBy;
+    r[COL.TOTAL_TIPS - 1] = proposed.totalTips;
+    r[COL.SUBMISSION_ID - 1] = safeText(sid);
+    return r;
+  }
+  for (const sp of splits.servers) {
+    const r = baseRow();
+    r[COL.RECIPIENT - 1] = safeText(sp.name.trim());
+    r[COL.ROLE - 1] = sp.trainee ? "Trainee" : "Server";
+    r[COL.TRAINEE_PCT - 1] = sp.trainee ? sp.pct : "";
+    r[COL.SLOT - 1] = safeText(sp.slotLabel);
+    r[COL.TIME_IN - 1] = sp.timeIn;
+    r[COL.TIME_OUT - 1] = sp.timeOut;
+    r[COL.HOURS - 1] = sp.hours;
+    r[COL.AMOUNT - 1] = sp.amount;
+    newRows.push(r);
+  }
+  for (const cf of splits.chefs) {
+    const r = baseRow();
+    r[COL.RECIPIENT - 1] = safeText(cf.name.trim());
+    r[COL.ROLE - 1] = "Chef";
+    r[COL.AMOUNT - 1] = cf.amount;
+    newRows.push(r);
+  }
+  const k = baseRow();
+  k[COL.RECIPIENT - 1] = "Kitchen"; k[COL.ROLE - 1] = "Kitchen"; k[COL.AMOUNT - 1] = splits.kitchen;
+  newRows.push(k);
+
+  const savedRows = targetRowIdxs.slice().sort(function (a, b) { return a - b; }).map(function (r) { return ldata[r - 2]; });
+
+  const newStart = ledger.getLastRow() + 1;
+  try {
+    ledger.getRange(newStart, 1, newRows.length, NUM_COLS).setValues(newRows);
+  } catch (writeErr) {
+    return { ok: false, retryable: true, error: String(writeErr && writeErr.message || writeErr) };
+  }
+  try {
+    ledger.deleteRows(oldStart, oldCount);
+  } catch (delErr) {
+    try { ledger.deleteRows(newStart, newRows.length); } catch (rbErr) {
+      return { ok: false, retryable: false, error: "CRITICAL: ledger has duplicate rows for " + sid + " and rollback failed. Resolve manually." };
+    }
+    return { ok: false, retryable: true, error: String(delErr && delErr.message || delErr) };
+  }
+  return {
+    ok: true,
+    ledger: ledger,
+    date: preservedDate,
+    time: preservedTime,
+    rowStart: newStart - oldCount, // appended block shifted up by the delete
+    rowCount: newRows.length,
+    savedRows: savedRows,
+  };
+}
+
 // Admin write path: approve (apply the proposed shift to the ledger) or deny.
 function handleResolveRequest(payload) {
   const storedPin = PropertiesService.getScriptProperties().getProperty("ADMIN_PIN");
@@ -939,101 +1044,12 @@ function handleResolveRequest(payload) {
       const validation = validateShiftFields(proposed);
       if (validation) return jsonResponse({ ok: false, error: "Proposal invalid: " + validation.replace("unknown_slot:", "") });
 
-      ledger = ss.getSheets()[0];
-      const lastL = ledger.getLastRow();
-      if (lastL < 2) return jsonResponse({ ok: false, error: "Shift not found in ledger" });
-      const ldata = ledger.getRange(2, 1, lastL - 1, NUM_COLS).getValues();
-      const targetRowIdxs = [];
-      let preservedDate = "", preservedTime = "";
-      for (let i = 0; i < ldata.length; i++) {
-        if (ldata[i][COL.SUBMISSION_ID - 1] === sid) {
-          targetRowIdxs.push(i + 2);
-          if (!preservedDate) {
-            const d = ldata[i][COL.DATE - 1], t = ldata[i][COL.TIME - 1];
-            preservedDate = (d instanceof Date) ? Utilities.formatDate(d, tz, "yyyy-MM-dd") : String(d || "");
-            preservedTime = (t instanceof Date) ? Utilities.formatDate(t, tz, "HH:mm") : String(t || "");
-          }
-        }
-      }
-      if (!targetRowIdxs.length) return jsonResponse({ ok: false, error: "Shift not found in ledger" });
-      const oldStart = Math.min.apply(null, targetRowIdxs);
-      const oldCount = targetRowIdxs.length;
-      if (Math.max.apply(null, targetRowIdxs) - oldStart + 1 !== oldCount) {
-        return jsonResponse({ ok: false, retryable: false, error: "Ledger rows for this shift are not contiguous; resolve manually." });
-      }
-
-      const splits = splitShift(proposed);
-      const shiftLabel = proposed.shiftType === "lunch" ? "Lunch" : "Dinner";
-      // Guard: an approved edit must not create a second shift of the same type
-      // on the same day (e.g. editing a lunch into a dinner that already exists).
-      for (let i = 0; i < ldata.length; i++) {
-        if (ldata[i][COL.SUBMISSION_ID - 1] === sid) continue;
-        const d2 = ldata[i][COL.DATE - 1];
-        const ds2 = (d2 instanceof Date) ? Utilities.formatDate(d2, tz, "yyyy-MM-dd") : String(d2 || "");
-        if (ds2 === preservedDate && String(ldata[i][COL.SHIFT - 1] || "") === shiftLabel) {
-          return jsonResponse({ ok: false, retryable: false, error: "Approving this would create a second " + shiftLabel + " shift for " + preservedDate + "." });
-        }
-      }
-      const enteredBy = safeText(String(proposed.enteredBy).trim());
-      const newRows = [];
-      function baseRow() {
-        const r = new Array(NUM_COLS).fill("");
-        r[COL.DATE - 1] = preservedDate;
-        r[COL.TIME - 1] = preservedTime;
-        r[COL.SHIFT - 1] = shiftLabel;
-        r[COL.ENTERED_BY - 1] = enteredBy;
-        r[COL.TOTAL_TIPS - 1] = proposed.totalTips;
-        r[COL.SUBMISSION_ID - 1] = safeText(sid);
-        return r;
-      }
-      for (const sp of splits.servers) {
-        const r = baseRow();
-        r[COL.RECIPIENT - 1] = safeText(sp.name.trim());
-        r[COL.ROLE - 1] = sp.trainee ? "Trainee" : "Server";
-        r[COL.TRAINEE_PCT - 1] = sp.trainee ? sp.pct : "";
-        r[COL.SLOT - 1] = safeText(sp.slotLabel);
-        r[COL.TIME_IN - 1] = sp.timeIn;
-        r[COL.TIME_OUT - 1] = sp.timeOut;
-        r[COL.HOURS - 1] = sp.hours;
-        r[COL.AMOUNT - 1] = sp.amount;
-        newRows.push(r);
-      }
-      for (const cf of splits.chefs) {
-        const r = baseRow();
-        r[COL.RECIPIENT - 1] = safeText(cf.name.trim());
-        r[COL.ROLE - 1] = "Chef";
-        r[COL.AMOUNT - 1] = cf.amount;
-        newRows.push(r);
-      }
-      const k = baseRow();
-      k[COL.RECIPIENT - 1] = "Kitchen"; k[COL.ROLE - 1] = "Kitchen"; k[COL.AMOUNT - 1] = splits.kitchen;
-      newRows.push(k);
-
-      // Save the originals (ascending) so we can restore the ledger on rollback.
-      ledgerSavedRows = targetRowIdxs.slice().sort(function (a, b) { return a - b; }).map(function (r) { return ldata[r - 2]; });
-
-      // Append the new rows first (one atomic call). A hard kill here leaves
-      // recoverable duplicate rows rather than a silently lost shift.
-      const newStart = ledger.getLastRow() + 1;
-      try {
-        ledger.getRange(newStart, 1, newRows.length, NUM_COLS).setValues(newRows);
-      } catch (writeErr) {
-        return jsonResponse({ ok: false, retryable: true, error: String(writeErr && writeErr.message || writeErr) });
-      }
-      // Then delete the old contiguous block (one atomic call; oldStart still
-      // valid because appends went to the bottom and didn't shift earlier rows).
-      try {
-        ledger.deleteRows(oldStart, oldCount);
-      } catch (delErr) {
-        let rolled = false;
-        try { ledger.deleteRows(newStart, newRows.length); rolled = true; } catch (rbErr) {
-          return jsonResponse({ ok: false, retryable: false, error: "CRITICAL: ledger has duplicate rows for " + sid + " and rollback failed. Resolve manually." });
-        }
-        if (rolled) return jsonResponse({ ok: false, retryable: true, error: String(delErr && delErr.message || delErr) });
-      }
-      // After the delete, the appended block shifted up by oldCount.
-      approvedRowStart = newStart - oldCount;
-      approvedRowCount = newRows.length;
+      const editRes = applyShiftEdit(ss, sid, proposed, tz);
+      if (!editRes.ok) return jsonResponse({ ok: false, retryable: editRes.retryable, error: editRes.error });
+      ledger = editRes.ledger;
+      ledgerSavedRows = editRes.savedRows;
+      approvedRowStart = editRes.rowStart;
+      approvedRowCount = editRes.rowCount;
       ledgerWritten = true;
     }
 
