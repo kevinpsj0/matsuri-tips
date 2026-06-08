@@ -126,26 +126,7 @@
     <hr class="sep">
     <p class="hint" data-i18n="edit_hint">Edit any field below, then send. The owner will review and approve.</p>
 
-    <label for="edit-by" data-i18n="entered_by_label">Entered by</label>
-    <input type="text" id="edit-by" maxlength="60" autocomplete="off">
-
-    <label for="edit-total" data-i18n="total_tips_label">Total tip amount ($)</label>
-    <input type="number" id="edit-total" inputmode="decimal" step="0.01" min="1" max="100000">
-
-    <label data-i18n="shift_label">Shift</label>
-    <div class="ep-pct" id="edit-shift">
-      <button type="button" data-shift="lunch" data-i18n="lunch">Lunch</button>
-      <button type="button" data-shift="dinner" data-i18n="dinner">Dinner</button>
-    </div>
-
-    <label data-i18n="servers_word">Servers</label>
-    <div id="edit-people"></div>
-    <button type="button" class="add-btn" id="edit-add" data-i18n="add_server">+ Add server</button>
-
-    <div id="edit-chef-section" class="hidden">
-      <label data-i18n="chefs_label">Chefs on shift</label>
-      <div id="edit-chef-list"></div>
-    </div>
+    <div id="edit-fields"></div>
 
     <div class="err" id="req-err"></div>
     <div class="modal-actions">
@@ -159,6 +140,7 @@
 
 <script src="i18n.js"></script>
 <script src="calc.js"></script>
+<script src="editform.js"></script>
 <script>
 const ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbyvxUBapgpbZpf-ndoexuH2ZjWIwO5bIzH26F-OeWmEcQY4QqbeFXs2lvRTarhlaFtHtQ/exec";
 
@@ -178,16 +160,14 @@ const reqName = document.getElementById("req-name");
 const reqNote = document.getElementById("req-note");
 const reqErr = document.getElementById("req-err");
 const reqSend = document.getElementById("req-send");
-const editBy = document.getElementById("edit-by");
-const editTotal = document.getElementById("edit-total");
-const editPeople = document.getElementById("edit-people");
-const editAdd = document.getElementById("edit-add");
 const toastEl = document.getElementById("toast");
+
+document.getElementById("edit-fields").innerHTML = editFormFieldsHtml();
+const editForm = createEditForm();
+let editChefRoster = []; // populated by loadChefRoster(); passed into editForm.render
 
 let shiftsMap = {};
 let currentSid = null;
-let editShift = "dinner";
-let editChefRoster = []; // [{name}] role=Chef from the roster
 let showSplit = false; // fail-closed: hidden until config (cache or fetch) says otherwise
 const CONFIG_KEY = "matsuri_config_v1";
 const CONFIG_CACHE_VERSION = 1;
@@ -277,112 +257,20 @@ function render(rows) {
 
 // ---- edit modal ----
 
-function slotOptions(shift, selectedId) {
-  return `<option value="">${escapeHtml(t("pick_time"))}</option>` + (SHIFT_SLOTS[shift] || []).map(s => `<option value="${escapeHtml(s.id)}"${s.id === selectedId ? " selected" : ""}>${escapeHtml(slotLabel(s.timeIn, s.timeOut))}</option>`).join("");
-}
-
-function personRowHtml(p) {
-  return `<div class="edit-person">
-    <div class="ep-row">
-      <input type="text" class="ep-name" maxlength="40" placeholder="${escapeHtml(t("ph_name"))}" value="${escapeHtml(p.name || "")}">
-      <button type="button" class="ep-remove" aria-label="${escapeHtml(t("remove"))}">&times;</button>
-    </div>
-    <div class="ep-row"><select class="ep-slot">${slotOptions(editShift, p.slot || "")}</select></div>
-  </div>`;
-}
-
-function renderEditPeople(people) {
-  editPeople.innerHTML = people.map(personRowHtml).join("");
-}
-
-function readEditServers() {
-  // Trainee level is set in the admin roster; the backend applies it on approve.
-  return Array.from(editPeople.querySelectorAll(".edit-person")).map((row) => ({
-    name: row.querySelector(".ep-name").value.trim(),
-    slot: row.querySelector(".ep-slot").value,
-    trainee: false,
-    pct: null,
-  }));
-}
-
-function renderEditChefs(checkedNames) {
-  const sec = document.getElementById("edit-chef-section");
-  const list = document.getElementById("edit-chef-list");
-  const checked = checkedNames || [];
-  // Union the roster with chefs already on the shift, so a slow/failed roster
-  // load can never silently drop existing chefs (which would redistribute their
-  // money to servers on save).
-  const names = [], seen = {};
-  editChefRoster.map(c => c.name).concat(checked).forEach(n => {
-    const k = String(n).toLowerCase();
-    if (k && !seen[k]) { seen[k] = true; names.push(n); }
-  });
-  if (!names.length) { sec.classList.add("hidden"); list.innerHTML = ""; return; }
-  sec.classList.remove("hidden");
-  const set = new Set(checked.map(n => n.toLowerCase()));
-  list.innerHTML = names.map(n => `<label class="chef-check"><input type="checkbox" class="edit-chef-cb" value="${escapeHtml(n)}"${set.has(n.toLowerCase()) ? " checked" : ""}> ${escapeHtml(n)}</label>`).join("");
-}
-
-function readEditChefs() {
-  return Array.from(document.querySelectorAll(".edit-chef-cb")).filter(cb => cb.checked).map(cb => ({ name: cb.value }));
-}
-
-function renderEditShiftToggle() {
-  document.querySelectorAll("#edit-shift button").forEach(b => b.classList.toggle("selected", b.dataset.shift === editShift));
-}
-
-// Delegated handler on the people container
-editPeople.addEventListener("click", (e) => {
-  const remove = e.target.closest(".ep-remove");
-  if (remove) {
-    const rows = editPeople.querySelectorAll(".edit-person");
-    if (rows.length <= 1) return; // keep at least one
-    remove.closest(".edit-person").remove();
-  }
-});
-
-editAdd.addEventListener("click", () => {
-  const rows = editPeople.querySelectorAll(".edit-person");
-  if (rows.length >= 12) return;
-  editPeople.insertAdjacentHTML("beforeend", personRowHtml({ name: "", slot: "" }));
-});
-
-document.getElementById("edit-shift").addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-shift]"); if (!b) return;
-  editShift = b.dataset.shift; renderEditShiftToggle();
-  editPeople.querySelectorAll(".ep-slot").forEach(sel => { sel.innerHTML = slotOptions(editShift, getSlot(editShift, sel.value) ? sel.value : ""); });
-});
-
 content.addEventListener("click", (e) => {
   const btn = e.target.closest(".req-btn");
   if (!btn) return;
   const card = btn.closest(".shift");
   const sid = card.dataset.sid;
   const sh = shiftsMap[sid];
-  if (!sh) {
-    alert(t("shift_gone"));
-    return;
-  }
+  if (!sh) { alert(t("shift_gone")); return; }
   currentSid = sid;
   editSub.textContent = t("edit_sub_tpl", { date: sh.date, time: sh.time, amount: fmt(sh.totalTips) });
   reqName.value = getMe();
   reqNote.value = "";
   reqErr.textContent = "";
-  editBy.value = sh.enteredBy || "";
-  editTotal.value = (sh.totalTips != null) ? sh.totalTips : "";
-  const recs = sh.recipients;
-  editShift = (recs[0] && recs[0].shift ? recs[0].shift : "Dinner").toLowerCase() === "lunch" ? "lunch" : "dinner";
-  renderEditShiftToggle();
-  const servers = recs.filter((r) => r.role === "Server" || r.role === "Trainee").map((r) => {
-    const slot = findSlotByTimes(editShift, r.timeIn, r.timeOut);
-    return { name: r.recipient || "", slot: slot ? slot.id : "" };
-  });
-  renderEditPeople(servers.length ? servers : [{ name: "", slot: "" }]);
-  // If a server's recorded slot no longer matches a current slot (owner retimed/removed it),
-  // the dropdown shows blank; hint the editor to re-pick rather than only erroring on Send.
-  reqErr.textContent = servers.some(s => s.name && !s.slot) ? t("slot_retimed_hint") : "";
-  const checkedChefs = recs.filter((r) => r.role === "Chef").map((r) => r.recipient || "");
-  renderEditChefs(checkedChefs);
+  const retimed = editForm.render(shiftRowsToModel(sh.recipients), editChefRoster);
+  reqErr.textContent = retimed ? t("slot_retimed_hint") : "";
   modal.classList.remove("hidden");
   reqName.focus();
 });
@@ -391,30 +279,11 @@ document.getElementById("req-cancel").addEventListener("click", () => modal.clas
 modal.addEventListener("click", (e) => { if (e.target === modal) modal.classList.add("hidden"); });
 
 
-function buildProposed() {
-  const enteredBy = editBy.value.trim();
-  const totalTips = parseFloat(editTotal.value);
-  const servers = readEditServers();
-  const chefs = readEditChefs();
-  if (!enteredBy) return { error: t("err_who_recorded") };
-  if (!isFinite(totalTips) || totalTips < 1 || totalTips > 100000) return { error: t("err_total_range2") };
-  if (!servers.length) return { error: t("err_one_server") };
-  for (let i = 0; i < servers.length; i++) {
-    if (!servers[i].name) return { error: t("err_server_name_n", { n: i + 1 }) };
-    if (!getSlot(editShift, servers[i].slot)) return { error: t("err_server_slot_n", { n: i + 1 }) };
-  }
-  const dupServer = firstDuplicateName(servers.map(s => s.name));
-  if (dupServer) return { error: t("err_two_servers_same", { name: dupServer }) };
-  const dupChef = firstDuplicateName(chefs.map(c => c.name));
-  if (dupChef) return { error: t("err_dup_chef", { name: dupChef }) };
-  return { proposed: { shiftType: editShift, enteredBy, totalTips, servers, chefs } };
-}
-
 reqSend.addEventListener("click", async () => {
   const name = reqName.value.trim();
   const note = reqNote.value.trim();
   if (!name) { reqErr.textContent = t("err_enter_name"); reqName.focus(); return; }
-  const built = buildProposed();
+  const built = editForm.read();
   if (built.error) { reqErr.textContent = built.error; return; }
   reqErr.textContent = "";
   reqSend.disabled = true; reqSend.textContent = t("sending");
